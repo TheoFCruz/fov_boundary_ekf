@@ -1,0 +1,13 @@
+% Run and visualize the single-wall demonstration scenario.
+
+projectRoot = fileparts(fileparts(mfilename('fullpath')));
+run(fullfile(projectRoot, 'startup.m'));
+
+scenario = scenarios.singleWall();
+result = fov.castRays( ...
+    scenario.Observer, scenario.Obstacles, 'NumRays', scenario.NumRays);
+
+viz.plotScenario(scenario, result, ...
+    'ShowRays', true, ...
+    'ShowNominalFov', true, ...
+    'ShowHitPoints', true);
