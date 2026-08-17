@@ -1,0 +1,2 @@
+# Keep repository-specific agent instructions tracked despite global ignores.
+!AGENTS.md
