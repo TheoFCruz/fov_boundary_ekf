@@ -4,7 +4,7 @@ function [figureHandle, axesHandle] = plotScenario(scenario, result, varargin)
 %   viz.plotScenario(scenario, result)
 %   [fig, ax] = viz.plotScenario(scenario, result, ...
 %       'ShowRays', true, 'ShowNominalFov', true, ...
-%       'ShowHitPoints', false)
+%       'ShowHitPoints', false, 'MetricField', field)
 
 if ~isstruct(scenario) || ~isfield(scenario, 'Observer') || ...
         ~isfield(scenario, 'Obstacles')
@@ -26,6 +26,8 @@ addParameter(parser, 'ShowRays', true);
 addParameter(parser, 'ShowNominalFov', true);
 addParameter(parser, 'ShowHitPoints', false);
 addParameter(parser, 'Parent', []);
+addParameter(parser, 'MetricField', []);
+addParameter(parser, 'MetricContourLevels', []);
 parse(parser, varargin{:});
 options = parser.Results;
 
@@ -64,6 +66,15 @@ patch(axesHandle, ...
     'FaceAlpha', 0.28, ...
     'EdgeColor', [0.05, 0.25, 0.55], ...
     'DisplayName', 'Visible FOV');
+
+if ~isempty(options.MetricField)
+    contourOptions = {'Parent', axesHandle};
+    if ~isempty(options.MetricContourLevels)
+        contourOptions = [contourOptions, ...
+            {'Levels', options.MetricContourLevels}];
+    end
+    viz.plotMetricContours(options.MetricField, contourOptions{:});
+end
 
 if options.ShowRays
     origin = result.Origin;
@@ -115,7 +126,7 @@ grid(axesHandle, 'on');
 xlabel(axesHandle, 'x');
 ylabel(axesHandle, 'y');
 title(axesHandle, char(scenario.Name));
-legend(axesHandle, 'show', 'Location', 'best');
+legend(axesHandle, 'show', 'Location', 'northeast');
 
 if ~wasHolding
     hold(axesHandle, 'off');

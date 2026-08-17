@@ -8,6 +8,11 @@ function result = castRays(observer, obstacles, varargin)
 % Each ray is clipped at the nearest obstacle intersection or at the
 % observer's maximum range. HitObstacleId is zero when the ray reaches the
 % maximum range without hitting an obstacle.
+%
+% VisibleBoundary is an ordered, closed polygonal approximation of the
+% visible region. For a partial FOV, it begins and ends at the observer;
+% for a full-circle FOV, it begins and ends at the first sampled endpoint.
+% Its accuracy depends on NumRays.
 
 if nargin < 2
     error('fov:castRays:InvalidArguments', ...
