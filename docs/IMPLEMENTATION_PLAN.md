@@ -1,13 +1,63 @@
-# Signed-Distance FOV Metrics Implementation Plan
+# FOV Metrics Implementation Plan
 
 This document is the main implementation plan for extending the repository
 from sampled occluded-FOV ray casting to signed-distance metrics, spatial
-fields, contour plots, and eventually alternative metric contracts.
+fields, contour plots, and scripted simulation workflows.
 
 Agents and contributors should keep this document current while implementing
 the plan. Each checklist item should be marked `[x]` only after the work it
 describes is implemented and verified. If a step is only partially complete,
 leave it unchecked and add a short note describing the remaining work.
+
+## Active direction: checkpoint 1 scripted simulation
+
+The active development direction is the moving-agent checkpoint described in
+[`fov_metrics_checkpoint_1_codex_plan.md`](fov_metrics_checkpoint_1_codex_plan.md).
+It supersedes further interactive-heading development. Existing static metric
+and contour phases below remain historical functionality and are preserved.
+`viz.interactiveScenario` and `scripts/runInteractiveScenario.m` are legacy
+static-analysis tools, not the recommended workflow.
+
+- [ ] Reconcile the checkpoint with repository guidance and retire interactive
+  development from the recommended workflow.
+- [ ] Implement validated body-frame references and forward-Euler kinematics.
+- [ ] Implement the scan adapter, pass-through belief lifecycle, and shared
+  boundary conversion.
+- [ ] Implement the headless runner, causal policy seam, logs, and sampled
+  diagnostics.
+- [ ] Implement scripted replay, summary rendering, and the moving-pair
+  scenario.
+- [ ] Add and run focused checkpoint-one tests; document outcomes.
+
+**Checkpoint status (2026-09-09):** The interfaces, scenario, plotting, and
+focused test class have been added. The checklist remains unchecked because no
+MATLAB runtime or graphics checks were run in this change. Run
+`run('startup.m'); results = runtests('tests'); table(results)` in MATLAB
+before marking checkpoint items complete. The checkpoint does not add an EKF,
+pursuit/controller optimization, collision response, or a base-link constraint.
+
+### Roadmap alignment review
+
+The [revised semester roadmap](probabilistic_fov_project_roadmap%284%29.pdf)
+defines the later first-boundary estimation research; checkpoint 1 remains the
+active implementation scope. Noisy sparse scans/segmentation come next, followed
+by deterministic transport, EKF covariance and support/reset handling, and then
+history-assisted reconstruction and an existing-controller demonstration.
+Controller development/proofs, persistent maps, and estimator scan archives are
+outside that roadmap. Offline replay logs are not estimator memory.
+
+The review tightened same-grid belief validation and covariance display inputs,
+made unsupported closed-polygon diagnostics invalid rather than claiming
+visibility, and added actual first/final-frame graphics checks using altered
+estimator output. No-return range caps and zero covariance remain explicit
+checkpoint-only placeholders, not Gaussian surface observations or confidence
+claims. Segment construction and motion compensation have not been added.
+
+**Verification update:** The user reported three failures in the initial
+checkpoint tests. The scalar replay-index bug and two test setup/expectation
+errors were subsequently corrected; no passing rerun has been reported here.
+This alignment review also adds tests, but runs no MATLAB/runtime/visual checks.
+Checkpoint acceptance remains open pending the focused and full MATLAB suites.
 
 ## Initial benchmark contract
 

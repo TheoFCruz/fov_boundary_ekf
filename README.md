@@ -3,9 +3,10 @@
 MATLAB project for studying metrics derived from a field of view (FOV)
 occluded by convex polygonal obstacles.
 
-The project is being built incrementally. Ray-cast visibility, signed Euclidean
-distance fields, contour visualization, and an interactive heading explorer are
-implemented; additional metric contracts and convergence experiments are next.
+The project is being built incrementally. Checkpoint 1 provides a reproducible,
+headless moving-observer/moving-follower simulation with ray-cast sensing, a
+pass-through boundary estimator, and replay. Static signed-distance analysis
+remains available as a separate workflow.
 
 ## Structure
 
@@ -13,13 +14,76 @@ implemented; additional metric contracts and convergence experiments are next.
 +fov/          FOV and obstacle model plus visibility computation
   +internal/   Testable low-level geometry helpers
 +metrics/      Metrics computed from visibility results
++simulation/   Headless kinematic scenario runner and validation
++sensing/      Synthetic scan adapter
++estimation/   Replaceable boundary-estimation callbacks
++control/      Replaceable observer-policy callbacks
 +viz/          Visualization helpers
 +scenarios/    Reusable scenario definitions
 scripts/       Experiment entry points
 tests/         Automated tests
 ```
 
-Angles will use radians and positions will use Cartesian `[x, y]` coordinates.
+Angles use radians and positions use Cartesian coordinates. Simulation poses are
+world-frame `[x, y, yaw]`; applied velocity inputs are body-frame
+`[vxBody, vyBody, omega]`.
+
+## Moving-pair simulation (checkpoint 1)
+
+Run the scripted example from MATLAB:
+
+```matlab
+run('startup.m');
+scenario = scenarios.movingPair();
+result = simulation.runScenario(scenario);
+viz.plotSimulationSummary(result);
+viz.animateSimulation(result);
+```
+
+`simulation.runScenario` never creates figures or advances with wall-clock
+time. It returns K+1 synchronized pose, scan, and posterior samples for K
+input intervals, so `result` can be saved directly to a MAT file. Replay speed
+and frame rate affect only displayed samples. `scripts/runMovingPair.m` runs
+the same sequence.
+
+The default estimator is deliberately a pass-through placeholder: its mean is
+the current scan ranges and its covariance is an exactly zero sparse matrix.
+This is not an EKF or confidence guarantee. Replace
+`scenario.Estimator` with callbacks named `Initialize`, `Predict`, and
+`Correct`, or replace `scenario.Observer.Policy` with a function accepting the
+current posterior, poses, base position, and reference velocity. Neither seam
+receives obstacle polygons or raw ray-cast oracle data.
+
+The follower state is intentionally known to the policy in this checkpoint.
+There is no pursuit, collision response, base-link constraint, or continuous
+visibility guarantee. The logged polygon visibility and signed distance are
+sampled-polygon approximations; invalid sampled polygons produce invalid metric
+diagnostics instead of fabricated distances.
+
+### Relationship to the semester roadmap
+
+The [semester roadmap](docs/probabilistic_fov_project_roadmap%284%29.pdf)
+targets motion-aware **first-boundary estimation**, not observer-pose or target
+tracking and not controller development. Checkpoint 1 is its deterministic
+simulation foundation: independent synthetic body-frame velocity schedules,
+noiseless scans, equal input/output angular grids, and no-op prediction.
+
+`HasReturn=false` denotes a range cap, not an obstacle at maximum range.
+Here `IsSupported=IsValid` means a sampled direction is available for the
+baseline; it does not certify physical-surface support or visibility between
+rays. Copying capped ranges with zero covariance is a placeholder, not Gaussian
+assimilation of censored no-return information. Offline `result.Scans` logs are
+for evaluation/replay only, never estimator map memory.
+
+Later roadmap work adds noisy sparse sensing, segmentation, within-segment
+motion transport, EKF covariance and forgetting/reset policies, then an existing
+controller demonstration. No global smoothing through depth jumps or visibility
+confidence guarantee is implemented here. The current polygon diagnostics use
+belief geometry: check `IsSampledPolygonValid` before interpreting
+`SampledPolygonVisible`. Degenerate or unsupported polygons have `NaN` distance
+and `false` validity (their `false` visibility entry is not a classification).
+Replay hides the estimated closed boundary if any direction is unsupported;
+segmented rendering remains future work.
 
 ## Visible-region and signed-distance contract
 
@@ -122,13 +186,15 @@ title(ax, 'Signed Euclidean distance (negative inside)');
 Other demonstration scenarios are available as
 `scenarios.emptyField()` and `scenarios.clutteredField()`.
 
-## Interactive heading explorer
+## Legacy interactive heading explorer
 
-Launch the heading explorer with:
+The slider explorer remains available for static signed-distance exploration:
 
 ```matlab
 run('scripts/runInteractiveScenario.m')
 ```
 
 Move the heading slider for a fast visible-FOV preview. Releasing it computes
-the signed-distance field and contour overlay for the selected heading.
+the signed-distance field and contour overlay for the selected heading. It is
+legacy/deprecated for new work; use the moving-pair scripted workflow above
+instead of extending interactive controls.
