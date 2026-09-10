@@ -65,6 +65,13 @@ moving-pair script selects obstacle-impact markers without full ray segments.
 Focused coverage was added but not run; leave the checkpoint checklist unchecked
 until the focused and full MATLAB suites, plus a desktop replay check, pass.
 
+**Replay pacing optimization (2026-09-10):** Disabled ray and impact artists
+are no longer populated during replay, and render time is deducted from each
+requested inter-frame delay. This preserves the logged samples and final-frame
+inclusion while avoiding unnecessary graphics transfer and additive render/pause
+time. Focused coverage was extended but not run; the same focused/full MATLAB
+and desktop replay verification remains required.
+
 ## Initial benchmark contract
 
 The first metric is a direct signed Euclidean distance to the sampled visible

@@ -53,7 +53,10 @@ the same sequence.
 `ShowRays` draws each sampled ray from the observer to its endpoint.
 `ShowHitPoints` marks only endpoints that intersect an obstacle; it does not
 mark maximum-range no-return endpoints. Both options are logical scalars and
-may be enabled together or disabled independently.
+may be enabled together or disabled independently. Disabled ray and impact
+displays are not updated during replay, which reduces graphics transfer work.
+Replay pacing accounts for graphics-render time, so slow rendering reduces the
+remaining inter-frame pause rather than extending it.
 
 The default estimator is deliberately a pass-through placeholder: its mean is
 the current scan ranges and its covariance is an exactly zero sparse matrix.

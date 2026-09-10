@@ -214,6 +214,8 @@ classdef TestSimulation < matlab.unittest.TestCase
                 'ShowRays', false, 'ShowHitPoints', true);
             verifyEqual(testCase, get(impactOnly.Rays, 'Visible'), 'off');
             verifyEqual(testCase, get(impactOnly.HitPoints, 'Visible'), 'on');
+            hiddenRayX = get(impactOnly.Rays, 'XData');
+            hiddenRayY = get(impactOnly.Rays, 'YData');
             artists = findall(impactOnly.Figure);
             for index = [1, numel(result.Time)]
                 impactOnly.UpdateFrame(index);
@@ -221,6 +223,8 @@ classdef TestSimulation < matlab.unittest.TestCase
                     result.RawCasts{index}.IsOccluded, :);
                 verifyEqual(testCase, [get(impactOnly.HitPoints, 'XData')(:), ...
                     get(impactOnly.HitPoints, 'YData')(:)], expected, 'AbsTol', 1e-12);
+                verifyEqual(testCase, get(impactOnly.Rays, 'XData'), hiddenRayX);
+                verifyEqual(testCase, get(impactOnly.Rays, 'YData'), hiddenRayY);
                 verifyEqual(testCase, findall(impactOnly.Figure), artists);
             end
 
@@ -229,11 +233,32 @@ classdef TestSimulation < matlab.unittest.TestCase
                 'ShowRays', true, 'ShowHitPoints', true);
             verifyEqual(testCase, get(both.Rays, 'Visible'), 'on');
             verifyEqual(testCase, get(both.HitPoints, 'Visible'), 'on');
+            both.UpdateFrame(1);
+            raw = result.RawCasts{1};
+            expectedRayX = [repmat(raw.Origin(1), numel(raw.Distances), 1), ...
+                raw.EndPoints(:, 1), nan(numel(raw.Distances), 1)].';
+            expectedRayY = [repmat(raw.Origin(2), numel(raw.Distances), 1), ...
+                raw.EndPoints(:, 2), nan(numel(raw.Distances), 1)].';
+            actualRayX = get(both.Rays, 'XData');
+            actualRayY = get(both.Rays, 'YData');
+            verifyEqual(testCase, actualRayX(:), expectedRayX(:), ...
+                'AbsTol', 1e-12);
+            verifyEqual(testCase, actualRayY(:), expectedRayY(:), ...
+                'AbsTol', 1e-12);
             neither = viz.animateSimulation(result, 'Visible', false, ...
                 'FrameRate', 1e9, 'Speed', 1e9, ...
                 'ShowRays', false, 'ShowHitPoints', false);
             verifyEqual(testCase, get(neither.Rays, 'Visible'), 'off');
             verifyEqual(testCase, get(neither.HitPoints, 'Visible'), 'off');
+            hiddenRayX = get(neither.Rays, 'XData');
+            hiddenRayY = get(neither.Rays, 'YData');
+            hiddenHitX = get(neither.HitPoints, 'XData');
+            hiddenHitY = get(neither.HitPoints, 'YData');
+            neither.UpdateFrame(1);
+            verifyEqual(testCase, get(neither.Rays, 'XData'), hiddenRayX);
+            verifyEqual(testCase, get(neither.Rays, 'YData'), hiddenRayY);
+            verifyEqual(testCase, get(neither.HitPoints, 'XData'), hiddenHitX);
+            verifyEqual(testCase, get(neither.HitPoints, 'YData'), hiddenHitY);
 
             noImpactResult = simulation.runScenario(shortScenario());
             noImpact = viz.animateSimulation(noImpactResult, 'Visible', false, ...

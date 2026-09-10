@@ -34,7 +34,7 @@ figureHandle = figure('Name', 'Simulation replay', 'Color', 'w', ...
 worldAxes = subplot(1, 2, 1, 'Parent', figureHandle);
 boundaryAxes = subplot(1, 2, 2, 'Parent', figureHandle);
 handles = createGraphics(figureHandle, worldAxes, boundaryAxes, result, options);
-handles.UpdateFrame = @(index) updateGraphics(handles, result, index);
+handles.UpdateFrame = @(index) updateGraphics(handles, result, index, options);
 frameIndices = selectFrames(result.Time, result.Config.Time.Step, ...
     options.FrameRate, options.Speed);
 
@@ -43,11 +43,19 @@ for framePosition = 1:numel(frameIndices)
     if ~isgraphics(figureHandle)
         return;
     end
-    updateGraphics(handles, result, frameIndex);
+    renderTimer = tic;
+    updateGraphics(handles, result, frameIndex, options);
     drawnow;
-    if framePosition < numel(frameIndices) && isgraphics(figureHandle)
-        pause((result.Time(frameIndices(framePosition + 1)) - ...
-            result.Time(frameIndex)) / options.Speed);
+    if ~isgraphics(figureHandle)
+        return;
+    end
+    if framePosition < numel(frameIndices)
+        targetDelay = (result.Time(frameIndices(framePosition + 1)) - ...
+            result.Time(frameIndex)) / options.Speed;
+        remainingDelay = targetDelay - toc(renderTimer);
+        if remainingDelay > 0
+            pause(remainingDelay);
+        end
     end
 end
 end
@@ -116,7 +124,7 @@ handles.WorldAxes = worldAxes;
 handles.BoundaryAxes = boundaryAxes;
 end
 
-function updateGraphics(handles, result, index)
+function updateGraphics(handles, result, index, options)
 if ~isgraphics(handles.Figure)
     return;
 end
@@ -147,13 +155,17 @@ if all(belief.IsSupported)
 else
     set(handles.EstimatedBoundary, 'Visible', 'off');
 end
-rayX = [repmat(raw.Origin(1), numel(raw.Distances), 1), raw.EndPoints(:, 1), ...
-    nan(numel(raw.Distances), 1)].';
-rayY = [repmat(raw.Origin(2), numel(raw.Distances), 1), raw.EndPoints(:, 2), ...
-    nan(numel(raw.Distances), 1)].';
-set(handles.Rays, 'XData', rayX(:), 'YData', rayY(:));
-hitPoints = raw.EndPoints(raw.IsOccluded, :);
-set(handles.HitPoints, 'XData', hitPoints(:, 1), 'YData', hitPoints(:, 2));
+if options.ShowRays
+    rayX = [repmat(raw.Origin(1), numel(raw.Distances), 1), raw.EndPoints(:, 1), ...
+        nan(numel(raw.Distances), 1)].';
+    rayY = [repmat(raw.Origin(2), numel(raw.Distances), 1), raw.EndPoints(:, 2), ...
+        nan(numel(raw.Distances), 1)].';
+    set(handles.Rays, 'XData', rayX(:), 'YData', rayY(:));
+end
+if options.ShowHitPoints
+    hitPoints = raw.EndPoints(raw.IsOccluded, :);
+    set(handles.HitPoints, 'XData', hitPoints(:, 1), 'YData', hitPoints(:, 2));
+end
 set(handles.Observer, 'XData', observerPose(1), 'YData', observerPose(2));
 set(handles.Follower, 'XData', followerPose(1), 'YData', followerPose(2));
 set(handles.ObserverHeading, 'XData', observerPose(1), 'YData', observerPose(2), ...
