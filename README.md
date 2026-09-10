@@ -37,7 +37,11 @@ run('startup.m');
 scenario = scenarios.movingPair();
 result = simulation.runScenario(scenario);
 viz.plotSimulationSummary(result);
-viz.animateSimulation(result);
+% Full ray segments (default):
+viz.animateSimulation(result, 'ShowRays', true, 'ShowHitPoints', false);
+
+% Obstacle-impact markers only (used by scripts/runMovingPair.m):
+viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);
 ```
 
 `simulation.runScenario` never creates figures or advances with wall-clock
@@ -45,6 +49,11 @@ time. It returns K+1 synchronized pose, scan, and posterior samples for K
 input intervals, so `result` can be saved directly to a MAT file. Replay speed
 and frame rate affect only displayed samples. `scripts/runMovingPair.m` runs
 the same sequence.
+
+`ShowRays` draws each sampled ray from the observer to its endpoint.
+`ShowHitPoints` marks only endpoints that intersect an obstacle; it does not
+mark maximum-range no-return endpoints. Both options are logical scalars and
+may be enabled together or disabled independently.
 
 The default estimator is deliberately a pass-through placeholder: its mean is
 the current scan ranges and its covariance is an exactly zero sparse matrix.

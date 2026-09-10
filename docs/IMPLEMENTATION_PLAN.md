@@ -59,6 +59,12 @@ errors were subsequently corrected; no passing rerun has been reported here.
 This alignment review also adds tests, but runs no MATLAB/runtime/visual checks.
 Checkpoint acceptance remains open pending the focused and full MATLAB suites.
 
+**Replay display extension (2026-09-10):** `viz.animateSimulation` now reuses
+the existing static-plot `ShowRays` and `ShowHitPoints` semantics. The
+moving-pair script selects obstacle-impact markers without full ray segments.
+Focused coverage was added but not run; leave the checkpoint checklist unchecked
+until the focused and full MATLAB suites, plus a desktop replay check, pass.
+
 ## Initial benchmark contract
 
 The first metric is a direct signed Euclidean distance to the sampled visible

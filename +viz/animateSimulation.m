@@ -4,6 +4,8 @@ function handles = animateSimulation(result, varargin)
 %   Rendering speed and frame rate select displayed samples only; they never
 %   alter the numerical result. The returned handles are useful for smoke tests.
 %   handles.UpdateFrame(index) redraws one logged sample without advancing physics.
+%   ShowRays draws origin-to-endpoint segments; ShowHitPoints marks only
+%   obstacle-intersection endpoints.
 
 validateResult(result);
 parser = inputParser;
@@ -11,12 +13,16 @@ parser.FunctionName = 'viz.animateSimulation';
 addParameter(parser, 'Visible', true);
 addParameter(parser, 'FrameRate', result.Config.Playback.FrameRate);
 addParameter(parser, 'Speed', result.Config.Playback.Speed);
+addParameter(parser, 'ShowRays', true);
+addParameter(parser, 'ShowHitPoints', false);
 parse(parser, varargin{:});
 options = parser.Results;
 if ~(islogical(options.Visible) && isscalar(options.Visible) && ...
-        isPositiveScalar(options.FrameRate) && isPositiveScalar(options.Speed))
+        isPositiveScalar(options.FrameRate) && isPositiveScalar(options.Speed) && ...
+        isLogicalScalar(options.ShowRays) && isLogicalScalar(options.ShowHitPoints))
     error('viz:animateSimulation:InvalidOption', ...
-        'Visible must be logical; FrameRate and Speed must be positive scalars.');
+        ['Visible, ShowRays, and ShowHitPoints must be logical scalars; ', ...
+        'FrameRate and Speed must be positive scalars.']);
 end
 
 visibility = 'off';
@@ -27,7 +33,7 @@ figureHandle = figure('Name', 'Simulation replay', 'Color', 'w', ...
     'Visible', visibility);
 worldAxes = subplot(1, 2, 1, 'Parent', figureHandle);
 boundaryAxes = subplot(1, 2, 2, 'Parent', figureHandle);
-handles = createGraphics(figureHandle, worldAxes, boundaryAxes, result);
+handles = createGraphics(figureHandle, worldAxes, boundaryAxes, result, options);
 handles.UpdateFrame = @(index) updateGraphics(handles, result, index);
 frameIndices = selectFrames(result.Time, result.Config.Time.Step, ...
     options.FrameRate, options.Speed);
@@ -46,7 +52,7 @@ for framePosition = 1:numel(frameIndices)
 end
 end
 
-function handles = createGraphics(figureHandle, worldAxes, boundaryAxes, result)
+function handles = createGraphics(figureHandle, worldAxes, boundaryAxes, result, options)
 hold(worldAxes, 'on');
 for index = 1:numel(result.Config.Obstacles)
     vertices = result.Config.Obstacles(index).Vertices;
@@ -70,7 +76,12 @@ handles.EstimatedBoundary = plot(worldAxes, nan, nan, '--', ...
     'Color', [0.95, 0.65, 0.10], 'LineWidth', 1.5, ...
     'DisplayName', 'Estimated boundary');
 handles.Rays = plot(worldAxes, nan, nan, '-', 'Color', [0.20, 0.40, 0.70], ...
-    'LineWidth', 0.4, 'HandleVisibility', 'off');
+    'LineWidth', 0.4, 'HandleVisibility', 'off', ...
+    'Visible', visibilityValue(options.ShowRays));
+handles.HitPoints = plot(worldAxes, nan, nan, 'o', ...
+    'Color', [0.85, 0.15, 0.10], 'MarkerFaceColor', [0.85, 0.15, 0.10], ...
+    'MarkerSize', 4, 'HandleVisibility', 'off', ...
+    'Visible', visibilityValue(options.ShowHitPoints));
 handles.Observer = plot(worldAxes, nan, nan, 'o', 'Color', [0.05, 0.25, 0.70], ...
     'MarkerFaceColor', [0.05, 0.25, 0.70], 'DisplayName', 'Observer');
 handles.Follower = plot(worldAxes, nan, nan, 'o', 'Color', [0.85, 0.20, 0.10], ...
@@ -141,6 +152,8 @@ rayX = [repmat(raw.Origin(1), numel(raw.Distances), 1), raw.EndPoints(:, 1), ...
 rayY = [repmat(raw.Origin(2), numel(raw.Distances), 1), raw.EndPoints(:, 2), ...
     nan(numel(raw.Distances), 1)].';
 set(handles.Rays, 'XData', rayX(:), 'YData', rayY(:));
+hitPoints = raw.EndPoints(raw.IsOccluded, :);
+set(handles.HitPoints, 'XData', hitPoints(:, 1), 'YData', hitPoints(:, 2));
 set(handles.Observer, 'XData', observerPose(1), 'YData', observerPose(2));
 set(handles.Follower, 'XData', followerPose(1), 'YData', followerPose(2));
 set(handles.ObserverHeading, 'XData', observerPose(1), 'YData', observerPose(2), ...
@@ -184,4 +197,15 @@ end
 function result = isPositiveScalar(value)
 result = isnumeric(value) && isscalar(value) && isreal(value) && ...
     isfinite(value) && value > 0;
+end
+
+function result = isLogicalScalar(value)
+result = islogical(value) && isscalar(value);
+end
+
+function value = visibilityValue(isVisible)
+value = 'off';
+if isVisible
+    value = 'on';
+end
 end

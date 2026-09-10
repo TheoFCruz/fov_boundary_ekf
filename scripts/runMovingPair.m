@@ -4,4 +4,6 @@ run('startup.m');
 scenario = scenarios.movingPair();
 result = simulation.runScenario(scenario);
 viz.plotSimulationSummary(result);
-viz.animateSimulation(result);
+
+% Set ShowRays true for full origin-to-endpoint segments.
+viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);

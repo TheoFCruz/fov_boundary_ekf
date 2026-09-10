@@ -195,6 +195,58 @@ classdef TestSimulation < matlab.unittest.TestCase
             hidden.UpdateFrame(1);
             verifyEqual(testCase, get(hidden.EstimatedBoundary, 'Visible'), 'off');
         end
+
+        function animationConfiguresRayAndImpactDisplays(testCase)
+            scenario = shortScenario();
+            movingPair = scenarios.movingPair();
+            scenario.Obstacles = movingPair.Obstacles;
+            result = simulation.runScenario(scenario);
+            beforeFigures = findall(groot, 'Type', 'figure');
+            testCase.addTeardown(@() deleteNewFigures(beforeFigures));
+
+            defaultDisplay = viz.animateSimulation(result, 'Visible', false, ...
+                'FrameRate', 1e9, 'Speed', 1e9);
+            verifyEqual(testCase, get(defaultDisplay.Rays, 'Visible'), 'on');
+            verifyEqual(testCase, get(defaultDisplay.HitPoints, 'Visible'), 'off');
+
+            impactOnly = viz.animateSimulation(result, 'Visible', false, ...
+                'FrameRate', 1e9, 'Speed', 1e9, ...
+                'ShowRays', false, 'ShowHitPoints', true);
+            verifyEqual(testCase, get(impactOnly.Rays, 'Visible'), 'off');
+            verifyEqual(testCase, get(impactOnly.HitPoints, 'Visible'), 'on');
+            artists = findall(impactOnly.Figure);
+            for index = [1, numel(result.Time)]
+                impactOnly.UpdateFrame(index);
+                expected = result.RawCasts{index}.EndPoints( ...
+                    result.RawCasts{index}.IsOccluded, :);
+                verifyEqual(testCase, [get(impactOnly.HitPoints, 'XData')(:), ...
+                    get(impactOnly.HitPoints, 'YData')(:)], expected, 'AbsTol', 1e-12);
+                verifyEqual(testCase, findall(impactOnly.Figure), artists);
+            end
+
+            both = viz.animateSimulation(result, 'Visible', false, ...
+                'FrameRate', 1e9, 'Speed', 1e9, ...
+                'ShowRays', true, 'ShowHitPoints', true);
+            verifyEqual(testCase, get(both.Rays, 'Visible'), 'on');
+            verifyEqual(testCase, get(both.HitPoints, 'Visible'), 'on');
+            neither = viz.animateSimulation(result, 'Visible', false, ...
+                'FrameRate', 1e9, 'Speed', 1e9, ...
+                'ShowRays', false, 'ShowHitPoints', false);
+            verifyEqual(testCase, get(neither.Rays, 'Visible'), 'off');
+            verifyEqual(testCase, get(neither.HitPoints, 'Visible'), 'off');
+
+            noImpactResult = simulation.runScenario(shortScenario());
+            noImpact = viz.animateSimulation(noImpactResult, 'Visible', false, ...
+                'FrameRate', 1e9, 'Speed', 1e9, 'ShowHitPoints', true);
+            noImpact.UpdateFrame(1);
+            verifyEmpty(testCase, get(noImpact.HitPoints, 'XData'));
+            verifyEmpty(testCase, get(noImpact.HitPoints, 'YData'));
+            verifyError(testCase, @() viz.animateSimulation(result, 'ShowRays', 1), ...
+                'viz:animateSimulation:InvalidOption');
+            verifyError(testCase, @() viz.animateSimulation(result, ...
+                'ShowHitPoints', [true, false]), ...
+                'viz:animateSimulation:InvalidOption');
+        end
     end
 end
 
