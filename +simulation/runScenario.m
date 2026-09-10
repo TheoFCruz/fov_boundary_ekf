@@ -28,8 +28,9 @@ estimatorConfig = struct( ...
     'MaxRange', scenario.Observer.Fov.MaxRange, ...
     'OpeningAngle', scenario.Observer.Fov.OpeningAngle);
 estimatorState = scenario.Estimator.Initialize(estimatorConfig);
+randomStream = RandStream('mt19937ar', 'Seed', sensorSeed(scenario.Sensor));
 [scans{1}, rawCasts{1}] = sensing.raycastScan(observerPose(1, :), ...
-    scenario.Observer.Fov, scenario.Obstacles, scenario.Sensor, time(1));
+    scenario.Observer.Fov, scenario.Obstacles, scenario.Sensor, time(1), randomStream);
 [estimatorState, beliefs{1}] = scenario.Estimator.Correct( ...
     estimatorState, scans{1});
 validateBelief(beliefs{1}, scans{1}, observerPose(1, :));
@@ -64,7 +65,7 @@ for index = 1:intervalCount
     estimatorState = scenario.Estimator.Predict(estimatorState, motion, step);
     [scans{index + 1}, rawCasts{index + 1}] = sensing.raycastScan( ...
         observerPose(index + 1, :), scenario.Observer.Fov, ...
-        scenario.Obstacles, scenario.Sensor, time(index + 1));
+        scenario.Obstacles, scenario.Sensor, time(index + 1), randomStream);
     [estimatorState, beliefs{index + 1}] = scenario.Estimator.Correct( ...
         estimatorState, scans{index + 1});
     validateBelief(beliefs{index + 1}, scans{index + 1}, ...
@@ -84,6 +85,13 @@ result.Beliefs = beliefs;
 result.RawCasts = rawCasts;
 result.PolicyDiagnostics = policyDiagnostics;
 result.Metrics = calculateMetrics(result);
+end
+
+function seed = sensorSeed(sensor)
+seed = 0;
+if isfield(sensor, 'Seed')
+    seed = double(sensor.Seed);
+end
 end
 
 function validateInput(value, name)

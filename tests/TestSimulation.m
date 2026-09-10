@@ -67,6 +67,76 @@ classdef TestSimulation < matlab.unittest.TestCase
             verifyTrue(testCase, all(scan.IsValid));
         end
 
+        function validatesNoiseSensorConfiguration(testCase)
+            scenario = shortScenario();
+            scenario.Sensor.RangeNoiseStd = -0.1;
+            verifyError(testCase, @() simulation.validateScenario(scenario), ...
+                'simulation:validateScenario:InvalidSensor');
+            scenario = shortScenario();
+            scenario.Sensor.RangeNoiseStd = NaN;
+            verifyError(testCase, @() simulation.validateScenario(scenario), ...
+                'simulation:validateScenario:InvalidSensor');
+            scenario = shortScenario();
+            scenario.Sensor.Seed = 0.5;
+            verifyError(testCase, @() simulation.validateScenario(scenario), ...
+                'simulation:validateScenario:InvalidSensor');
+            scenario = shortScenario();
+            scenario.Sensor.RangeNoiseStd = 0.1;
+            verifyError(testCase, @() sensing.raycastScan(scenario.Observer.InitialPose, ...
+                scenario.Observer.Fov, scenario.Obstacles, scenario.Sensor, 0), ...
+                'sensing:raycastScan:MissingRandomStream');
+        end
+
+        function seededRangeNoisePreservesOracleAndNoReturns(testCase)
+            scenario = shortScenario();
+            movingPair = scenarios.movingPair();
+            scenario.Obstacles = movingPair.Obstacles;
+            scenario.Sensor.RangeNoiseStd = 0.25;
+            scenario.Sensor.Seed = 17;
+            originalRng = rng;
+            testCase.addTeardown(@() rng(originalRng));
+            rng(41);
+            expectedNextRandom = rand;
+            rng(41);
+
+            first = simulation.runScenario(scenario);
+            second = simulation.runScenario(scenario);
+            actualNextRandom = rand;
+
+            verifyEqual(testCase, first.Scans, second.Scans);
+            verifyEqual(testCase, actualNextRandom, expectedNextRandom);
+            cleanScenario = scenario;
+            cleanScenario.Sensor.RangeNoiseStd = 0;
+            clean = simulation.runScenario(cleanScenario);
+            verifyEqual(testCase, first.RawCasts, clean.RawCasts);
+            for index = 1:numel(first.Scans)
+                scan = first.Scans{index};
+                raw = first.RawCasts{index};
+                verifyEqual(testCase, scan.HasReturn, raw.IsOccluded);
+                verifyEqual(testCase, scan.Ranges(~scan.HasReturn), ...
+                    raw.Distances(~raw.IsOccluded));
+                verifyGreaterThanOrEqual(testCase, scan.Ranges(scan.HasReturn), 0);
+                verifyLessThanOrEqual(testCase, scan.Ranges(scan.HasReturn), scan.MaxRange);
+            end
+            firstScan = first.Scans{1};
+            firstRaw = first.RawCasts{1};
+            verifyTrue(testCase, any(firstScan.HasReturn));
+            verifyTrue(testCase, any(~firstScan.HasReturn));
+            verifyNotEqual(testCase, firstScan.Ranges(firstScan.HasReturn), ...
+                firstRaw.Distances(firstRaw.IsOccluded));
+
+            clippingSensor = movingPair.Sensor;
+            clippingSensor.RangeNoiseStd = 1e6;
+            clippingStream = RandStream('mt19937ar', 'Seed', 17);
+            [clippedScan, clippedRaw] = sensing.raycastScan( ...
+                movingPair.Observer.InitialPose, movingPair.Observer.Fov, ...
+                movingPair.Obstacles, clippingSensor, 0, clippingStream);
+            clippedReturns = clippedScan.Ranges(clippedScan.HasReturn);
+            verifyEqual(testCase, clippedScan.HasReturn, clippedRaw.IsOccluded);
+            verifyTrue(testCase, any(clippedReturns == 0));
+            verifyTrue(testCase, any(clippedReturns == clippedScan.MaxRange));
+        end
+
         function passThroughEstimatorCopiesScan(testCase)
             scenario = shortScenario();
             [scan, raw] = sensing.raycastScan(scenario.Observer.InitialPose, ...
@@ -174,7 +244,9 @@ classdef TestSimulation < matlab.unittest.TestCase
             artists = findall(handles.Figure);
 
             verifyTrue(testCase, isgraphics(handles.RawBoundary));
+            verifyTrue(testCase, isgraphics(handles.MeasurementBoundary));
             verifyTrue(testCase, isgraphics(handles.EstimatedBoundary));
+            verifyTrue(testCase, isgraphics(handles.OracleRange));
             verifyTrue(testCase, isgraphics(handles.ScanLine));
             for index = [1, numel(result.Time)]
                 handles.UpdateFrame(index);
@@ -194,6 +266,53 @@ classdef TestSimulation < matlab.unittest.TestCase
                 'FrameRate', 1e9, 'Speed', 1e9);
             hidden.UpdateFrame(1);
             verifyEqual(testCase, get(hidden.EstimatedBoundary, 'Visible'), 'off');
+        end
+
+        function animationDistinguishesOracleMeasurementAndBelief(testCase)
+            scenario = shortScenario();
+            movingPair = scenarios.movingPair();
+            scenario.Obstacles = movingPair.Obstacles;
+            scenario.Sensor.RangeNoiseStd = 0.25;
+            scenario.Sensor.Seed = 17;
+            result = simulation.runScenario(scenario);
+            beforeFigures = findall(groot, 'Type', 'figure');
+            testCase.addTeardown(@() deleteNewFigures(beforeFigures));
+            scansBeforeReplay = result.Scans;
+            handles = viz.animateSimulation(result, 'Visible', false, ...
+                'FrameRate', 1e9, 'Speed', 1e9);
+            artists = findall(handles.Figure);
+            handles.UpdateFrame(1);
+            raw = result.RawCasts{1};
+            scan = result.Scans{1};
+            belief = result.Beliefs{1};
+            expectedMeasurement = fov.boundaryFromRanges(scan.ObserverPose, ...
+                scan.Angles, scan.Ranges, scan.OpeningAngle);
+            actualX = get(handles.MeasurementBoundary, 'XData');
+            actualY = get(handles.MeasurementBoundary, 'YData');
+
+            verifyEqual(testCase, get(handles.RawBoundary, 'DisplayName'), ...
+                'Oracle sampled boundary');
+            verifyEqual(testCase, get(handles.MeasurementBoundary, 'DisplayName'), ...
+                'Measurement boundary');
+            verifyEqual(testCase, get(handles.EstimatedBoundary, 'DisplayName'), ...
+                'Estimated boundary');
+            verifyEqual(testCase, get(handles.OracleRange, 'DisplayName'), 'Oracle range');
+            verifyEqual(testCase, get(handles.ScanLine, 'DisplayName'), 'Measurement range');
+            verifyEqual(testCase, get(handles.OracleRange, 'LineStyle'), '-');
+            verifyEqual(testCase, get(handles.ScanLine, 'LineStyle'), '-.');
+            verifyEqual(testCase, get(handles.MeanLine, 'LineStyle'), '--');
+            verifyEqual(testCase, [actualX(:), actualY(:)], expectedMeasurement, ...
+                'AbsTol', 1e-12);
+            oracleRange = get(handles.OracleRange, 'YData');
+            measurementRange = get(handles.ScanLine, 'YData');
+            verifyEqual(testCase, oracleRange(:), raw.Distances, 'AbsTol', 1e-12);
+            verifyEqual(testCase, measurementRange(:), scan.Ranges, 'AbsTol', 1e-12);
+            verifyEqual(testCase, get(handles.MeanLine, 'YData'), belief.Mean, ...
+                'AbsTol', 1e-12);
+            verifyNotEqual(testCase, scan.Ranges(scan.HasReturn), ...
+                raw.Distances(raw.IsOccluded));
+            verifyEqual(testCase, result.Scans, scansBeforeReplay);
+            verifyEqual(testCase, findall(handles.Figure), artists);
         end
 
         function animationConfiguresRayAndImpactDisplays(testCase)

@@ -35,6 +35,8 @@ Run the scripted example from MATLAB:
 ```matlab
 run('startup.m');
 scenario = scenarios.movingPair();
+scenario.Sensor.RangeNoiseStd = 0.05; % m; set to zero for noiseless scans
+scenario.Sensor.Seed = 17;
 result = simulation.runScenario(scenario);
 viz.plotSimulationSummary(result);
 % Full ray segments (default):
@@ -58,6 +60,15 @@ displays are not updated during replay, which reduces graphics transfer work.
 Replay pacing accounts for graphics-render time, so slow rendering reduces the
 remaining inter-frame pause rather than extending it.
 
+`scenario.Sensor.RangeNoiseStd` defaults to zero. A positive value adds
+zero-mean Gaussian noise to first-return ranges only; values outside
+`[0, MaxRange]` are clipped. `scenario.Sensor.Seed` selects the run-local random
+stream, so repeated simulations with the same configuration reproduce the same
+logged scans without changing MATLAB's global random stream. Capped no-return
+rays remain unchanged and retain `HasReturn=false`. Replay shows the noiseless
+oracle boundary/range, noisy measurement boundary/range, and belief estimate as
+separate artists; it never resamples noise.
+
 The default estimator is deliberately a pass-through placeholder: its mean is
 the current scan ranges and its covariance is an exactly zero sparse matrix.
 This is not an EKF or confidence guarantee. Replace
@@ -78,7 +89,8 @@ The [semester roadmap](docs/probabilistic_fov_project_roadmap%284%29.pdf)
 targets motion-aware **first-boundary estimation**, not observer-pose or target
 tracking and not controller development. Checkpoint 1 is its deterministic
 simulation foundation: independent synthetic body-frame velocity schedules,
-noiseless scans, equal input/output angular grids, and no-op prediction.
+optional deterministic return-range noise, equal input/output angular grids,
+and no-op prediction.
 
 `HasReturn=false` denotes a range cap, not an obstacle at maximum range.
 Here `IsSupported=IsValid` means a sampled direction is available for the
@@ -87,8 +99,8 @@ rays. Copying capped ranges with zero covariance is a placeholder, not Gaussian
 assimilation of censored no-return information. Offline `result.Scans` logs are
 for evaluation/replay only, never estimator map memory.
 
-Later roadmap work adds noisy sparse sensing, segmentation, within-segment
-motion transport, EKF covariance and forgetting/reset policies, then an existing
+Later roadmap work adds sparse sensing, segmentation, within-segment motion
+transport, EKF covariance and forgetting/reset policies, then an existing
 controller demonstration. No global smoothing through depth jumps or visibility
 confidence guarantee is implemented here. The current polygon diagnostics use
 belief geometry: check `IsSampledPolygonValid` before interpreting

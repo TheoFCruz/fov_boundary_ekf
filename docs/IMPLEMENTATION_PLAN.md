@@ -1,788 +1,629 @@
 # FOV Metrics Implementation Plan
 
-This document is the main implementation plan for extending the repository
-from sampled occluded-FOV ray casting to signed-distance metrics, spatial
-fields, contour plots, and scripted simulation workflows.
+This is the execution plan for the MATLAB first-boundary field-of-view (FoV)
+testbed. The active target is the observer-frame first-occlusion-boundary range
+profile `B_t(theta)`, together with its support and uncertainty—not observer or
+follower estimation, occupancy, a persistent world map, or a new controller
+research program.
 
-Agents and contributors should keep this document current while implementing
-the plan. Each checklist item should be marked `[x]` only after the work it
-describes is implemented and verified. If a step is only partially complete,
-leave it unchecked and add a short note describing the remaining work.
+The repository already contains the checkpoint-one plumbing and the historical
+static signed-distance workflow. Milestone A's implementation is now present:
+noisy measurements and the distinction between oracle, measurement, and belief
+are visible before adding filtering. Milestone-A verification remains pending;
+Milestone B is the next planned implementation. Each checklist item is marked
+`[x]` only when the described implementation exists **and** the relevant
+verification has actually been run. An implemented but unverified item stays
+unchecked with an honest note.
 
-## Active direction: checkpoint 1 scripted simulation
+## 1. Active direction and current status
 
-The active development direction is the moving-agent checkpoint described in
-[`fov_metrics_checkpoint_1_codex_plan.md`](fov_metrics_checkpoint_1_codex_plan.md).
-It supersedes further interactive-heading development. Existing static metric
-and contour phases below remain historical functionality and are preserved.
-`viz.interactiveScenario` and `scripts/runInteractiveScenario.m` are legacy
-static-analysis tools, not the recommended workflow.
+The active workflow is the headless moving-pair simulation, followed by replay.
+It supersedes further development of the interactive heading explorer. The
+static signed-distance, field, contour, and UI phases remain supported as
+historical/legacy material in Section 8. Milestone A is implementation-complete
+but awaiting its focused and desktop verification; Milestone B is the next
+planned milestone. Before Milestone B implementation, the concrete
+signed-distance control law, reference-combination rule, finite input bounds,
+and invalid-case fallback still require an explicit design decision.
 
-- [ ] Reconcile the checkpoint with repository guidance and retire interactive
-  development from the recommended workflow.
-- [ ] Implement validated body-frame references and forward-Euler kinematics.
-- [ ] Implement the scan adapter, pass-through belief lifecycle, and shared
-  boundary conversion.
-- [ ] Implement the headless runner, causal policy seam, logs, and sampled
-  diagnostics.
-- [ ] Implement scripted replay, summary rendering, and the moving-pair
-  scenario.
-- [ ] Add and run focused checkpoint-one tests; document outcomes.
+### Current checkpoint-one state
 
-**Checkpoint status (2026-09-09):** The interfaces, scenario, plotting, and
-focused test class have been added. The checklist remains unchecked because no
-MATLAB runtime or graphics checks were run in this change. Run
-`run('startup.m'); results = runtests('tests'); table(results)` in MATLAB
-before marking checkpoint items complete. The checkpoint does not add an EKF,
-pursuit/controller optimization, collision response, or a base-link constraint.
+The current checkout contains the following foundation:
 
-### Roadmap alignment review
+- `simulation.runScenario` is a headless, causal, zero-order-held forward-
+  Euler runner for a moving observer and follower.
+- `sensing.raycastScan` adapts first-return ray casts into a measurement
+  structure. It supports return-only Gaussian range noise clamped to
+  `[0, MaxRange]`; no-return caps remain unchanged. `fov.castRays` remains the
+  noiseless geometry/oracle layer.
+- `estimation.makePassThroughEstimator` implements `Initialize`, `Predict`,
+  and `Correct`. Its mean copies scan ranges and its sparse covariance is
+  exactly zero; it is not an EKF or a confidence claim.
+- `control.referencePolicy` is the replaceable policy seam and currently
+  returns the configured observer reference.
+- Logs contain synchronized `K+1` poses, scans, beliefs, and raw casts for `K`
+  intervals. Replay consumes those logs and does not feed history back into an
+  estimator. Replay maintains distinct persistent oracle, measurement, and
+  belief boundary and range artists.
+- `viz.animateSimulation` updates persistent graphics handles and always
+  includes the final sample. The shipped replay pacing optimization avoids
+  populating disabled ray/impact artists and subtracts render time from the
+  requested inter-frame delay. The user has manually observed substantially
+  faster replay; automated MATLAB verification of this optimization is still
+  unreported.
 
-The [revised semester roadmap](probabilistic_fov_project_roadmap%284%29.pdf)
-defines the later first-boundary estimation research; checkpoint 1 remains the
-active implementation scope. Noisy sparse scans/segmentation come next, followed
-by deterministic transport, EKF covariance and support/reset handling, and then
-history-assisted reconstruction and an existing-controller demonstration.
-Controller development/proofs, persistent maps, and estimator scan archives are
-outside that roadmap. Offline replay logs are not estimator memory.
+The Milestone-A implementation is present, but checkpoint acceptance remains
+open. Focused tests were added for sensor validation, deterministic same-seed
+scans, preservation of the global RNG, preservation of oracle and no-return
+data, explicit clipping, replay without resampling, oracle/measurement/belief
+source separation, labels and styles, and fixed artist count. Those tests have
+not been run. No current focused-test, full-suite, or formal desktop graphics
+pass should be inferred from the existence of the code. The user's comment
+“That looks great” is recorded as positive manual visual observation/approval
+of the Milestone-A result only; it is not a formal desktop graphics or
+final-frame verification.
 
-The review tightened same-grid belief validation and covariance display inputs,
-made unsupported closed-polygon diagnostics invalid rather than claiming
-visibility, and added actual first/final-frame graphics checks using altered
-estimator output. No-return range caps and zero covariance remain explicit
-checkpoint-only placeholders, not Gaussian surface observations or confidence
-claims. Segment construction and motion compensation have not been added.
+### Foundation acceptance checklist
 
-**Verification update:** The user reported three failures in the initial
-checkpoint tests. The scalar replay-index bug and two test setup/expectation
-errors were subsequently corrected; no passing rerun has been reported here.
-This alignment review also adds tests, but runs no MATLAB/runtime/visual checks.
-Checkpoint acceptance remains open pending the focused and full MATLAB suites.
+- [ ] Run the focused checkpoint tests after the latest fixes/additions and
+  record the actual result.
+- [ ] Run the full MATLAB suite and record the actual result.
+- [ ] Manually replay `scenarios.movingPair()` on a desktop and record the
+  graphics result, including final-frame inclusion and replay responsiveness.
+- [ ] Keep the checkpoint limits explicit: no EKF, pursuit optimization,
+  collision response, base-link guarantee, map, occupancy representation, scan
+  archive, or hidden-surface model.
 
-**Replay display extension (2026-09-10):** `viz.animateSimulation` now reuses
-the existing static-plot `ShowRays` and `ShowHitPoints` semantics. The
-moving-pair script selects obstacle-impact markers without full ray segments.
-Focused coverage was added but not run; leave the checkpoint checklist unchecked
-until the focused and full MATLAB suites, plus a desktop replay check, pass.
+## 2. Project contracts that remain in force
 
-**Replay pacing optimization (2026-09-10):** Disabled ray and impact artists
-are no longer populated during replay, and render time is deducted from each
-requested inter-frame delay. This preserves the logged samples and final-frame
-inclusion while avoiding unnecessary graphics transfer and additive render/pause
-time. Focused coverage was extended but not run; the same focused/full MATLAB
-and desktop replay verification remains required.
+### Units, state, and causal order
 
-## Initial benchmark contract
+- Use SI units where applicable and radians for angles.
+- World poses are finite `[x, y, yaw]` rows with unwrapped yaw. Applied inputs
+  are body-frame `[vxBody, vyBody, omega]` rows.
+- Use zero-order-held forward Euler. Both agents advance from the same
+  pre-step snapshot.
+- For `K` intervals, logs contain `K+1` synchronized poses, scans, and beliefs
+  plus `K` interval inputs. The policy sees the current posterior before the
+  step. `Predict` receives completed observer motion and the preceding applied
+  input; the next scan then goes to `Correct`.
+- The runner is deterministic and headless: no figures, timers, pauses, wall-
+  clock physics, or unseeded randomness.
 
-The first metric is a direct signed Euclidean distance to the sampled visible
-region produced by `fov.castRays`.
+### Measurement, belief, and geometry
 
-The initial contract is:
+- The current boundary state is a range vector on a relative angular grid. A
+  belief contains `Mean`, `Covariance`, `IsSupported`, `HasReturn`,
+  `ObserverPose`, `MaxRange`, `OpeningAngle`, and method/time metadata.
+- `HasReturn=false` is censored range-cap/no-return information. It is not an
+  obstacle at maximum range and is not initially a Gaussian equality.
+- `IsSupported` means only that boundary information is justified in that
+  direction. It does not certify a physical return or visibility between rays.
+  Unsupported directions must not be silently closed into a visible polygon.
+- Checkpoint one keeps the scan and posterior angular grids equal. A later
+  sparse sensor may deliberately use `M` physical rays and `N` output bins, but
+  only through a separately validated and documented contract change.
+- Raw casts are oracle data for simulation, evaluation, and rendering only.
+  Estimators receive scans and known motion through the lifecycle, never
+  obstacle polygons, raw casts, future inputs, or full logs.
+- Belief-derived geometry uses `fov.boundaryFromRanges`; rendering and policy
+  code must not bypass the estimator by copying a raw cast boundary.
+- Signed distance keeps the convention negative inside, positive outside, and
+  zero on the sampled polygon. Invalid, unsupported, degenerate, or
+  self-intersecting constructed boundaries produce invalid diagnostics/`NaN`
+  distance rather than fabricated visibility. Unexpected errors propagate.
 
-- **Geometry:** `result.VisibleBoundary` from `fov.castRays`.
-- **Distance:** shortest Euclidean distance to that polygon boundary.
-- **Sign:** negative inside, positive outside, and zero on the boundary.
-- **Domain:** any finite Cartesian query point, including points outside the
-  nominal FOV and points inside obstacles.
-- **Units:** the same units used by observer and obstacle coordinates.
-- **Approximation:** the metric is exact relative to the sampled polygon, not
-  relative to the ideal continuous visibility region.
+### Ownership map
 
-For a visible region `V`, the contract is:
+Keep responsibilities in the existing packages:
 
-\[
-d_V(p) =
-\begin{cases}
--\min_{q \in \partial V}\|p-q\|_2, & p \in V \\
-0, & p \in \partial V \\
-\phantom{-}\min_{q \in \partial V}\|p-q\|_2, & p \notin V.
-\end{cases}
-\]
+| Package | Ownership |
+| --- | --- |
+| `+fov` | FOV models, obstacle validation, ray geometry, and boundary conversion |
+| `+fov/internal` | Low-level geometry helpers |
+| `+sensing` | Measurement-only adapters, currently `raycastScan` |
+| `+estimation` | `Initialize`/`Predict`/`Correct` estimators and current boundary belief |
+| `+simulation` | Scenario validation, schedules, kinematics, causal runner, and logs |
+| `+control` | Observer-policy callbacks and the policy seam |
+| `+metrics` | Computational metric contracts and spatial fields |
+| `+viz` | Summary, replay, and static rendering |
+| `+scenarios` | Reusable static and dynamic scenario factories |
+| `scripts` | Thin experiment/demo entry points |
+| `tests` | MATLAB unit and graphics-smoke tests |
 
-The scalar signed-distance function is continuous and 1-Lipschitz. Its
-closest boundary feature and gradient can change discontinuously at corners,
-medial axes, and occlusion transitions. Those changes are meaningful parts of
-the benchmark rather than bugs.
+Prefer plain structs, small functions, and callbacks. Do not add a required
+toolbox or dependency.
 
-The two discretizations in the initial workflow must remain conceptually
-separate:
+## 3. Roadmap alignment and intentional sequence
 
-1. **Visibility-geometry approximation:** `fov.castRays` samples a finite set
-   of angles and connects the returned endpoints into a polygon.
-2. **Field/contour approximation:** the signed-distance function is sampled
-   on an XY grid and contour lines are interpolated between grid nodes.
+The revised semester roadmap in
+[`probabilistic_fov_project_roadmap(4).pdf`](probabilistic_fov_project_roadmap%284%29.pdf)
+defines three research stages:
 
-Ray-count studies should vary only the first approximation. Grid-resolution
-studies should vary only the second.
+1. dense ground truth with noisy sparse sensing, filtering/segmentation, and
+   no-return handling;
+2. deterministic within-segment motion transport followed by EKF covariance,
+   support, reset, and forgetting behavior; and
+3. reduced rays, history-assisted reconstruction, and a demonstration with the
+   existing controller.
 
----
+The implementation sequence below inserts a minimal signed-distance controller
+baseline between sensing visualization and the EKF. This is a deliberate,
+slight deviation from the controller-last ordering: it validates the complete
+belief-to-policy seam early and makes the value of filtering visible. It does
+not change the research goal or authorize controller redesign. After the EKF,
+baseline control behavior must be compared using pass-through versus EKF
+beliefs; only then should sparse/history-assisted reconstruction and the final
+existing-controller demonstration proceed.
 
-## Phase 1: Formalize the visible-region contract
+## 4. Active implementation sequence
 
-- [x] Document `result.VisibleBoundary` as a computational representation,
-  not merely a plotting convenience.
-- [x] Document the partial-FOV boundary order:
-  `observer -> first endpoint -> ... -> last endpoint -> observer`.
-- [x] Document the full-circle boundary order:
-  `first endpoint -> ... -> last endpoint -> first endpoint`.
-- [x] Require or validate that the boundary supplied to distance metrics is
-  finite, real, ordered, closed or closable, and nondegenerate.
-- [x] Define behavior for consecutive duplicate vertices.
-- [x] Define behavior for fewer than three unique vertices, zero-area
-  boundaries, nonfinite coordinates, and self-intersections.
-- [x] Decide whether full-circle casts with only two rays remain legal in
-  `fov.castRays` while being rejected by the metric as degenerate. The initial
-  recommendation is to leave ray casting unchanged and reject the degenerate
-  boundary in the metric.
-- [x] Add the visible-region, sign-convention, and finite-ray approximation
-  documentation to the project documentation.
+All roadmap acceptance work below remains unchecked until implementation and
+the relevant verification are both complete. The substeps are ordered
+requirements, not optional suggestions.
 
-### Boundary invariants
+### Milestone A — deterministic range noise and clear replay visualization
 
-The boundary used by the metric should be:
+**Purpose.** Add the first experimental variation without adding a new
+persistent/evaluation-metrics program. The implemented result makes the
+difference among truth, sensed data, and estimated boundary unambiguous in an
+animation.
 
-- finite and real;
-- closed;
-- ordered;
-- nondegenerate;
-- free of consecutive duplicate vertices;
-- suitable for `inpolygon` and point-to-segment calculations.
+#### Implemented sensor contract
 
----
-
-## Phase 2: Implement direct signed Euclidean distance
-
-Add:
-
-```text
-+metrics/signedEuclideanDistance.m
-```
-
-### Public API
-
-Use a pointwise API that accepts a boundary directly:
-
-```matlab
-[distance, details] = metrics.signedEuclideanDistance( ...
-    boundary, queryPoints, varargin)
-```
-
-Example:
-
-```matlab
-points = [0, 0; 4, 1; 8, 3];
-
-[d, details] = metrics.signedEuclideanDistance( ...
-    result.VisibleBoundary, points, ...
-    'Tolerance', result.Tolerance);
-```
-
-### Inputs
-
-- `boundary`: `M x 2` polygon vertices, open or closed.
-- `queryPoints`: `N x 2` finite Cartesian points.
-- `Tolerance`: optional positive geometric tolerance.
-
-Accepting a boundary directly keeps the metric independent of ray casting and
-makes it easy to test against analytically known polygons.
-
-### Outputs
-
-`distance` is an `N x 1` vector. An optional `details` output may contain:
+The sensor configuration now has a zero-noise default and an explicit seed:
 
 ```matlab
-details.UnsignedDistance
-details.IsInside
-details.IsOnBoundary
-details.ClosestPoint
-details.ClosestEdgeIndex
+scenario.Sensor.RangeNoiseStd = 0;
+scenario.Sensor.Seed = 0;       % explicit run-local seed
 ```
 
-Diagnostic fields are useful for investigating medial axes and changes in the
-closest boundary feature. They should only be constructed when requested so a
-large contour grid does not require unnecessary diagnostic memory.
+The implemented field names and validation follow the existing MATLAB
+conventions. The behavior is:
 
-### Internal helpers
+- `RangeNoiseStd=0` reproduces the current noiseless measurement behavior.
+- A positive standard deviation adds zero-mean Gaussian measurement noise only
+  to actual first returns (`HasReturn=true`). A no-return sample remains
+  censored range-cap data with `HasReturn=false`; it must not receive a
+  Gaussian equality or become an artificial surface at the cap.
+- The raw result from `fov.castRays` remains noiseless oracle data. It is kept
+  separate from the noisy `scan` and from the belief.
+- The simulation owns the run-local random stream. A seed makes repeated runs
+  reproducible, and sampling must not mutate MATLAB's global RNG state. Noise
+  is sampled exactly once while the simulation creates each scan. Replay and
+  `handles.UpdateFrame` only display logged values and never resample.
+- The equal scan/output angular-grid contract remains unchanged. No sparse-grid
+  interpolation, smoothing, or cross-ray coupling is introduced by this
+  milestone.
+- Additive Gaussian samples on returns are clipped to `[0, MaxRange]`, keeping
+  scan values finite and physically usable. This policy does not alter
+  no-return semantics.
 
-Add helpers under:
+Noise belongs in `+sensing/raycastScan` (or its measurement-only helper), not in
+`+fov/castRays`. `simulation.runScenario` passes a seeded run-local
+`RandStream`, causing one sample per scan without exposing oracle geometry to
+the estimator.
 
-```text
-+metrics/+internal/normalizeBoundary.m
-+metrics/+internal/pointToSegments.m
-```
+#### Visualization contract
 
-#### `normalizeBoundary`
+Use persistent handles and the existing replay frame-selection/final-frame
+behavior. Clearly distinguish all three data products in both views:
 
-Responsibilities:
+- **World view:** noiseless oracle boundary/rays from the raw cast; noisy scan
+  endpoints/boundary reconstructed from `scan.Angles` and `scan.Ranges`; and
+  belief-estimated boundary reconstructed from `belief.Mean`. Use distinct
+  colors, line styles, and legend labels. Do not hide coincidence when noise is
+  zero.
+- **Boundary view:** show separate curves for the noiseless oracle, noisy scan
+  measurement, and belief mean, with distinct labels/styles; retain the
+  covariance annotation/band when a future estimator provides one.
+- Unsupported belief portions remain hidden or segmented rather than joined
+  into a closed polygon. A noisy scan itself may be rendered only according to
+  its valid measurement contract.
 
-1. Validate shape and numeric values.
-2. Add the closing vertex if it is missing.
-3. Remove consecutive duplicate vertices within tolerance.
-4. Reject degenerate edges and zero-area polygons.
-5. Return segment starts and ends.
+Keep `ShowRays`/`ShowHitPoints` semantics, fixed graphics handles, and the
+shipped optimization. Do not add video export, persistent scan archives, or
+new evaluation metrics. Existing checkpoint diagnostics may remain; this
+milestone adds only transient display state needed to explain the three curves.
 
-Do not convert the boundary to `polyshape` in the core calculation. `polyshape`
-may simplify or repair geometry, which could silently change the sampled
-polygon being benchmarked.
+#### Milestone-A checklist and acceptance
 
-#### `pointToSegments`
+- [ ] Validate zero-noise default, positive-noise validation, explicit seed,
+  and run-local reproducibility without global-RNG mutation.
+- [ ] Verify noise is applied only to first returns and no-return flags/range
+  caps remain censored data.
+- [ ] Verify raw casts are unchanged/noiseless and replay does not resample.
+- [ ] Verify noisy scan and belief geometry are both sourced from their own
+  fields, not raw-cast geometry.
+- [ ] Verify world and boundary legends/styles distinguish oracle, noisy scan,
+  and belief estimate while artist counts remain fixed across frames.
+- [ ] Verify zero-noise replay is backward-compatible with the current
+  checkpoint display.
 
-For each query point `p` and segment from `a` to `b`, calculate:
-
-\[
-t = \operatorname{clamp}\left(
-\frac{(p-a)\cdot(b-a)}{\|b-a\|^2}, 0, 1\right)
-\]
-
-\[
-q = a + t(b-a), \qquad \delta = \|p-q\|_2.
-\]
-
-Choose the segment with minimum `delta`.
-
-Process query points in chunks so a large contour grid does not allocate an
-`N points x M edges` matrix all at once.
-
-### Sign calculation
-
-Use MATLAB's polygon classification:
+**User-run verification after implementation:**
 
 ```matlab
-[inside, on] = inpolygon( ...
-    queryPoints(:,1), queryPoints(:,2), ...
-    boundary(:,1), boundary(:,2));
+run('startup.m');
+scenario = scenarios.movingPair();
+scenario.Sensor.RangeNoiseStd = 0;
+scenario.Sensor.Seed = 17;
+first = simulation.runScenario(scenario);
+second = simulation.runScenario(scenario);
+assert(isequal(first.Scans, second.Scans));
+scenario.Sensor.RangeNoiseStd = 0.05;
+noisy = simulation.runScenario(scenario);
+viz.animateSimulation(noisy, 'ShowRays', true, 'ShowHitPoints', false);
 ```
 
-Then apply the signed-distance convention:
+Also run the focused test command in Section 5, inspect a desktop replay with
+noise enabled and disabled, and record actual outcomes. Do not treat this
+manual visualization check as an automated or full graphics pass.
+
+**Implementation status (2026-09-10):** `RangeNoiseStd` and `Seed` are now
+validated sensor fields with zero-noise defaults in `scenarios.movingPair`.
+`simulation.runScenario` owns a seeded local `RandStream`; `sensing.raycastScan`
+adds clipped Gaussian noise only to first returns and leaves capped no-returns
+unchanged. Replay distinguishes oracle, measurement, and belief boundaries and
+ranges with persistent artists. The focused tests listed above were added but
+not run, so all Milestone-A checklist items remain unchecked pending the
+focused commands and desktop replay. The positive user observation “That looks
+great” does not establish a formal graphics, final-frame, focused-test, or
+full-suite result.
+
+### Milestone B — minimal signed-distance controller baseline
+
+Implement a deliberately small end-to-end controller through the existing
+`+control` policy seam, before the EKF. It should use the current belief-derived
+geometry and current observation only. In particular, it must never consume raw
+casts, obstacle polygons, future inputs, or full logs. The known follower-pose
+assumption remains explicit: in this baseline the policy may use the current
+follower pose supplied by the checkpoint observation, but this is an idealized
+known-target assumption, not target estimation.
+
+The baseline should evaluate signed Euclidean distance to the estimated FoV
+constructed from the belief. The sampled-polygon distance is only an
+approximation to continuous visibility. Distance and control diagnostics are
+transient policy/visualization diagnostics; they are not a request to begin a
+new persistent metrics or evaluation program.
+
+The concrete signed-distance control law, reference-combination rule, finite
+input bounds, and invalid-case fallback must be selected and documented
+**before coding**. Signed distance alone is a scalar diagnostic, not a control
+input. The policy contract must specify what happens for each invalid case:
+
+- if the belief has unsupported directions or the constructed boundary is
+  degenerate, self-intersecting, or otherwise invalid, return an explicit safe
+  fallback (the initial baseline should use a bounded zero observer command)
+  and diagnostics that identify the fallback;
+- do not fabricate a closed polygon or silently substitute raw visibility;
+- describe the fallback as an operational fail-safe for this experiment, not a
+  collision, visibility, or safety guarantee.
+
+The baseline is not a visibility/safety proof, CBF/QP effort, pursuit
+optimizer, actuator/collision model, or controller redesign. It must not add
+base-link guarantees. Preserve the known follower-pose and sampled-polygon
+limitations in its user-facing diagnostics.
+
+#### Milestone-B checklist and acceptance
+
+- [ ] Select and document the control law, reference use, bounds, and fallback
+  before implementation.
+- [ ] Implement the policy under `+control`; keep the runner's observation and
+  callback seam replaceable.
+- [ ] Prove by injected-estimator tests that policy geometry follows belief
+  output rather than raw casts.
+- [ ] Test valid, unsupported, degenerate, and self-intersecting geometry
+  behavior and explicit bounded fallback diagnostics.
+- [ ] Confirm no policy input includes obstacles, raw casts, future inputs, or
+  full logs.
+- [ ] Show the baseline operating with the current pass-through belief without
+  adding persistent metrics.
+
+**User-run verification after implementation:**
 
 ```matlab
-isOnBoundary = on | unsignedDistance <= tolerance;
-
-distance = unsignedDistance;
-distance(inside & ~isOnBoundary) = ...
-    -unsignedDistance(inside & ~isOnBoundary);
-distance(isOnBoundary) = 0;
+run('startup.m');
+scenario = scenarios.movingPair();
+scenario.Observer.Policy = @control.signedDistanceBaseline;
+result = simulation.runScenario(scenario);
+viz.plotSimulationSummary(result);
+viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);
+results = runtests('tests/TestSimulation.m');
+table(results)
 ```
 
-When no tolerance is supplied, use a scale-aware default based on coordinate
-magnitude and floating-point precision.
+The planned entry point above is only to make the handoff command concrete;
+the control law and bounds must be selected and documented before that policy
+is coded. Manually inspect a valid run and an invalid/unsupported-belief
+fallback; record that inspection separately from MATLAB test results.
 
----
+### Milestone C — motion-aware first-boundary EKF
 
-## Phase 3: Establish a generic metric-field interface
+The EKF is the third major milestone and must be implemented in the following
+ordered substeps. Do not collapse them into one untestable estimator rewrite.
 
-The grid-generation layer should not know which metric contract it evaluates.
-Add:
+1. **Surface segmentation and depth jumps.** Identify supported first-surface
+   segments and discontinuities before interpolation. Never interpolate,
+   smooth, or couple covariance across an obstacle-silhouette/depth jump.
+2. **Explicit support and no-return semantics.** Keep support separate from
+   `HasReturn`. A censored no-return is not initially a Gaussian equality;
+   newly exposed or unjustified directions stay unsupported.
+3. **Fixed-view Gaussian measurement correction.** With the observer view held
+   fixed, correct valid first-return bins using a documented measurement noise
+   model and dimensions. Restrict associations/covariance coupling to a single
+   supported segment.
+4. **Deterministic within-segment rotation/translation transport.** Transport
+   supported boundary points into the new observer frame using known completed
+   motion. Resample only within the same segment, with deterministic behavior
+   at valid associations.
+5. **Jacobians and covariance propagation.** Add local transition Jacobians,
+   process noise, and covariance propagation only where the segment and
+   interpolation associations remain unchanged. Validate symmetry, dimensions,
+   finiteness, and nonnegative variances.
+6. **Exposure, FoV exit, reset, and forgetting.** Newly exposed directions get
+   an explicit unsupported/reset policy; surfaces leaving the current FoV are
+   forgotten. Remove stale cross-correlations instead of retaining hidden
+   surfaces for later reuse.
 
-```text
-+metrics/sampleField.m
-```
+The EKF state remains only the current observer-frame boundary belief and its
+support/uncertainty. Do not add a world map, occupancy grid, persistent map
+memory, scan archive, hidden-surface model, or global smoothing. Keep equal
+scan/output grids through this milestone; a later sparse-grid contract requires
+its own validation, tests, and documentation.
 
-### Suggested API
+#### Milestone-C checklist and acceptance
+
+- [ ] Implement and test segmentation/depth-jump boundaries before any
+  cross-ray interpolation or covariance coupling.
+- [ ] Implement and test support, return, and censored no-return behavior.
+- [ ] Implement fixed-view correction and verify measurement-noise dimensions
+  and covariance validity.
+- [ ] Implement deterministic within-segment rotation and translation
+  transport, including pure rotation, translation toward/along a wall, and
+  corner exposure cases.
+- [ ] Add local Jacobians and covariance propagation with tests for symmetry,
+  finite values, and correct dimensions.
+- [ ] Implement newly exposed-surface reset, FoV exit, and forgetting tests.
+- [ ] Verify the estimator receives only scans and motion through
+  `Initialize`/`Predict`/`Correct`, never oracle geometry or log history.
+- [ ] Verify unsupported portions are not rendered or evaluated as a closed
+  visible polygon.
+
+**User-run verification after implementation:**
 
 ```matlab
-evaluator = @(points) metrics.signedEuclideanDistance( ...
-    result.VisibleBoundary, points, ...
-    'Tolerance', result.Tolerance);
-
-field = metrics.sampleField(evaluator, ...
-    'Bounds', [xmin, xmax, ymin, ymax], ...
-    'GridSize', [201, 241], ...
-    'Name', "Signed Euclidean distance", ...
-    'Units', "m");
+run('startup.m');
+results = runtests('tests/TestSimulation.m');
+table(results)
+scenario = scenarios.movingPair();
+scenario.Sensor.RangeNoiseStd = 0.05;
+scenario.Sensor.Seed = 17;
+result = simulation.runScenario(scenario);
+viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);
 ```
 
-### Field structure
+Add focused EKF tests to the appropriate test class before using this command;
+record the actual focused result and the desktop replay result.
 
-Return a structure containing:
+### Milestone D — belief comparison, sparse rays, and final demonstration
+
+After Milestone C, compare the signed-distance baseline's behavior when driven
+by pass-through belief versus EKF belief. Keep comparison diagnostics scoped to
+the experiment and visualization; do not turn them into a new metrics program.
+Only after that comparison:
+
+- deliberately reduce physical ray count and introduce history-assisted
+  reconstruction with a documented `M`-ray/`N`-output contract;
+- report unsupported directions explicitly rather than improving apparent
+  error by withholding predictions; and
+- supply the resulting first boundary to the existing controller for the final
+  demonstration. This is an interface demonstration, not controller
+  redesign, proof, pursuit optimization, or a safety guarantee.
+
+#### Milestone-D checklist and acceptance
+
+- [ ] Compare pass-through and EKF belief under the same scenario and control
+  law before reducing rays.
+- [ ] Add sparse-grid validation, segmentation-aware history reconstruction,
+  and explicit unsupported-direction reporting.
+- [ ] Demonstrate the existing controller using the final estimated boundary.
+- [ ] Record finite-return error, supported fraction, exposure recovery, and
+  runtime only if the project later explicitly authorizes that evaluation
+  study; these are not current work.
+
+## 5. Verification plan and commands
+
+No verification command has been run as part of this documentation update.
+After each implementation milestone, run the smallest relevant focused suite,
+inspect the output, and update this document with the actual date and result.
+If MATLAB or desktop graphics are unavailable, say so and leave the checklist
+unchecked.
+
+### Focused simulation verification
 
 ```matlab
-field.Name
-field.Units
-field.Bounds
-field.GridSize
-field.X
-field.Y
-field.Values
-field.ZeroLevel
-field.SignConvention
+run('startup.m');
+results = runtests('tests/TestSimulation.m');
+table(results)
 ```
 
-The initial metadata should include:
+This suite should cover synchronization, body/world angle conversion,
+no-return/support semantics, deterministic seeded sensing, estimator-bypass
+prevention, policy fallback, and fixed-handle replay as those features are
+implemented.
+
+### Full verification
 
 ```matlab
-field.ZeroLevel = 0;
-field.SignConvention = "negative-inside";
+run('startup.m');
+results = runtests('tests');
+table(results)
 ```
 
-### Grid convention
-
-For `GridSize = [ny, nx]`:
+For graphics-affecting changes, also run on a desktop:
 
 ```matlab
-x = linspace(xmin, xmax, nx);
-y = linspace(ymin, ymax, ny);
-[X, Y] = meshgrid(x, y);
+run('startup.m');
+scenario = scenarios.movingPair();
+result = simulation.runScenario(scenario);
+viz.plotSimulationSummary(result);
+viz.animateSimulation(result);
 ```
 
-Therefore:
+Changing replay speed or frame rate must not change logged arrays. The final
+frame must be shown. These manual checks are not substitutes for the MATLAB
+suite, and no graphics pass should be claimed without actually performing it.
+
+## 6. Risks, guardrails, and open decisions
+
+- **Noise and reproducibility:** `RangeNoiseStd`/`Seed` names, seed validation,
+  run-local random-stream construction, and clipping returns to `[0, MaxRange]`
+  are resolved and implemented. Milestone-A verification remains pending; the
+  future statistical interpretation of noise and filter semantics remains open.
+  Never use an unseeded/global RNG or add noise in `fov`.
+- **Censoring:** no-return observations must remain separate from returns in
+  sensing, correction, plotting, diagnostics, and tests.
+- **Depth discontinuities:** no global interpolation, smoothing, or covariance
+  coupling across segments. A jump is a structural boundary, not noise to be
+  blurred away.
+- **Support and forgetting:** high covariance alone does not create
+  information. Newly exposed directions need a justified observation or
+  within-segment rule; surfaces outside the current FoV are forgotten.
+- **Controller law:** select the concrete signed-distance control law,
+  reference-combination behavior, finite input bounds, and invalid-case
+  fallback before Milestone-B coding. The policy fallback is an explicit
+  bounded command, not a safety proof.
+- **Geometry approximation:** sampled-polygon signed distance is exact only for
+  the constructed sampled polygon, not ideal continuous visibility. Invalid
+  geometry must remain invalid rather than repaired silently.
+- **Estimator boundaries:** the estimator must not receive polygons, raw
+  casts, future inputs, or full replay logs. Offline logs are not memory.
+- **Scope:** do not add SLAM, occupancy, persistent maps, hidden surfaces,
+  scan archives, CBF/QP, pursuit optimization, actuator/collision dynamics,
+  base-link guarantees, ROS/CrazySim, interactive physics, video export, or a
+  required dependency.
+
+## 7. Checkpoint-one handoff and current acceptance record
+
+The supported handoff remains:
 
 ```matlab
-size(field.X)      == [ny, nx]
-size(field.Y)      == [ny, nx]
-size(field.Values) == [ny, nx]
+run('startup.m');
+scenario = scenarios.movingPair();
+result = simulation.runScenario(scenario);
+viz.plotSimulationSummary(result);
+viz.animateSimulation(result);
 ```
 
-Explicit bounds are preferred initially. This avoids hiding plotting-domain
-decisions inside the metric layer.
+Configuration can change time bounds, step, independent velocity schedules,
+obstacles, FoV parameters, ray count, and initial poses without editing the
+runner. The follower pose is intentionally known to the policy in this
+checkpoint. There is no pursuit, collision response, continuous visibility
+guarantee, or base-link guarantee.
+
+**Acceptance record:** the current code additions and replay optimization are
+documented above, but the focused checkpoint tests have no reported passing
+rerun after the fixes/additions. Automated MATLAB verification and the required
+desktop graphics replay remain open. The reported faster replay is a manual
+performance observation only.
+
+## 8. Historical static signed-distance, contour, and UI phases
+
+These phases document completed or intentionally retained legacy work. They do
+not override the active probabilistic-FoV sequence in Section 4.
+
+### Historical benchmark contract
+
+The original benchmark computes shortest Euclidean distance to
+`result.VisibleBoundary` from `fov.castRays`:
+
+- negative strictly inside the sampled visible polygon;
+- positive outside;
+- zero on its boundary;
+- valid for finite Cartesian query points, including points outside the nominal
+  FoV and points inside obstacles; and
+- exact only relative to the finite sampled polygon, not ideal continuous
+  visibility.
+
+Ray-count geometry approximation and XY field/contour interpolation remain
+separate approximations. For partial FoV, the boundary order is
+`observer -> first endpoint -> ... -> last endpoint -> observer`; for full FoV,
+it is `first endpoint -> ... -> last endpoint -> first endpoint`.
+
+The metric accepts finite, real, ordered, closed-or-closable, nondegenerate
+boundaries. Consecutive duplicate vertices are removed within tolerance;
+fewer than three unique vertices, zero area, nonfinite coordinates, degenerate
+edges, and self-intersections are rejected. Full-circle ray casts with two
+rays remain legal ray-casting output but are rejected as degenerate by the
+metric. The scalar distance is continuous and 1-Lipschitz, although closest
+features can change at corners, medial axes, and occlusion transitions.
+
+### Historical phases 1–6: static implementation
+
+- [x] Formalize the visible-region boundary contract, ordering, sign
+  convention, duplicate handling, and invalid-geometry behavior.
+- [x] Implement `metrics.signedEuclideanDistance` with direct boundary input,
+  point-to-segment distance, polygon sign classification, optional diagnostics,
+  and scale-aware tolerance behavior.
+- [x] Implement generic `metrics.sampleField` with explicit bounds, grid size,
+  mesh orientation, values, zero level, units, and sign metadata. Keep field
+  sampling independent of visibility ray count.
+- [x] Implement `viz.plotMetricContours` with regular contours, a distinct zero
+  contour, supplied-parent support, held-state preservation, and graphics
+  handles.
+- [x] Complete the historical static metric tests: exact polygons,
+  normalization, concavity, FOV integration, the Lipschitz property, field
+  sampling, contour handles, and the static demo.
+- [x] Complete the historical demonstration as
+  `scripts/runSingleScenario.m` (rather than the originally proposed
+  `runDistanceContours.m`) and document the equivalent README workflow.
+
+The prior historical record reports a full MATLAB suite pass on 2026-08-17 for
+that static phase. That old result is not a passing rerun of the current
+checkpoint after later fixes/additions.
+
+### Historical Phase 7: interactive heading explorer
+
+`viz.interactiveScenario` and `scripts/runInteractiveScenario.m` remain
+available for static exploration and are legacy/deprecated for new work.
+
+- [x] Provide a programmatic `uifigure`/`uiaxes` explorer with heading slider,
+  degree/radian conversion, fixed observer/FoV/scenario settings, returned
+  graphics handles, and invisible construction for smoke tests.
+- [x] Keep a fixed square domain and axes limits while the heading changes.
+- [x] Use a fast `ValueChangingFcn` preview without metric fields and a full
+  `ValueChangedFcn` contour update after release.
+- [x] Preserve graphics lifecycle behavior: clear/redraw safely, avoid stale
+  callbacks, avoid accumulated colorbars/legends, and delegate geometry,
+  distance, field, and contour work to existing package functions.
+- [x] Add invisible-UI smoke coverage for controls, preview/release behavior,
+  fixed limits, and repeated updates.
+- [ ] Manually verify desktop slider responsiveness and record limitations.
+
+Do not extend this UI as the primary simulation workflow. No App Designer
+application, observer dragging, obstacle editing, or continuous contour update
+is planned.
+
+### Historical phases 8–9: not active
+
+- [ ] Separate ray-count convergence studies from grid-resolution convergence
+  studies.
+- [ ] Add critical-angle sampling only if a later static-geometry task
+  explicitly reactivates it; retain `fov.castRays` uniform-sampling behavior.
+- [ ] Add additional metric contracts only through the existing function-handle
+  field interface and only after an explicitly approved scope change.
+
+These items are retained for history and are not prerequisites for the active
+noise, controller-baseline, or EKF sequence.
+
+## 9. Historical static API notes
 
-### Evaluator design
+The original static workflow remains usable with `fov.FovSpec`,
+`fov.Observer`, `fov.polygonObstacle`, `fov.castRays`,
+`metrics.signedEuclideanDistance`, `metrics.sampleField`, and
+`viz.plotMetricContours`. Static signed-distance is shortest distance to the
+sampled polygon boundary, with negative-inside sign; ray count and field-grid
+resolution must not be conflated in studies.
 
-Use a pointwise function handle so future metric contracts can share the same
-field sampler:
-
-```matlab
-euclidean = @(p) metrics.signedEuclideanDistance(boundary, p);
-radial    = @(p) metrics.signedRadialDistance(result, p);
-weighted  = @(p) metrics.weightedVisibilityDistance(result, p);
-```
-
-Do not create a formal metric class or descriptor system yet. A function handle
-is sufficient until at least two real contracts exist.
-
----
-
-## Phase 4: Add contour visualization
-
-Add:
-
-```text
-+viz/plotMetricContours.m
-```
-
-### Suggested API
-
-```matlab
-handles = viz.plotMetricContours(field, ...
-    'Parent', ax, ...
-    'Levels', -4:0.5:4, ...
-    'ShowZeroContour', true, ...
-    'ShowColorbar', true);
-```
-
-### Initial visualization scope
-
-Start with line contours rather than filled contours. This avoids obscuring
-obstacles and the visible-region patch.
-
-The function should:
-
-- draw regular contours colored by signed value;
-- draw the zero contour separately with a thicker line;
-- distinguish negative and positive values through the colormap;
-- preserve the axes' previous hold state;
-- support a supplied axes for future UI integration;
-- return graphics handles.
-
-Example:
-
-```matlab
-[fig, ax] = viz.plotScenario(scenario, result, ...
-    'ShowRays', false);
-
-viz.plotMetricContours(field, ...
-    'Parent', ax, ...
-    'Levels', -5:0.5:5, ...
-    'ShowZeroContour', true);
-```
-
-The zero contour should approximately overlay `result.VisibleBoundary`.
-Differences of approximately one grid cell are expected.
-
-Potential later options, not required for the first implementation:
-
-- `contourf` mode;
-- transparency;
-- masks for obstacle interiors;
-- labels via `clabel`;
-- symmetric automatic levels;
-- nearest-edge or gradient visualization.
-
----
-
-## Phase 5: Automated testing
-
-Use the existing placeholder:
-
-```text
-tests/TestMetrics.m
-```
-
-### A. Exact polygon tests
-
-Use the known square:
-
-```matlab
-boundary = [
-   -1, -1
-    1, -1
-    1,  1
-   -1,  1
-   -1, -1
-];
-```
-
-Verify:
-
-| Query point | Expected distance |
-| --- | ---: |
-| `[0, 0]` | `-1` |
-| `[0.5, 0]` | `-0.5` |
-| `[1, 0]` | `0` |
-| `[2, 0]` | `1` |
-| `[2, 2]` | `sqrt(2)` |
-
-Also verify the closest point and edge where unambiguous.
-
-### B. Boundary normalization
-
-Test:
-
-- open versus closed input;
-- clockwise versus counterclockwise order;
-- repeated closing point;
-- consecutive duplicate rejection or removal;
-- invalid dimensions;
-- `NaN` and `Inf`;
-- zero-area polygons.
-
-### C. Concave geometry
-
-Although obstacles are convex, the visible FOV polygon can be concave. Include
-a simple concave polygon and test points:
-
-- inside the main region;
-- inside the concavity but outside the polygon;
-- near the reflex vertex.
-
-### D. FOV integration tests
-
-Using actual ray-cast results, verify:
-
-- the observer is inside or on the visible region;
-- every `VisibleBoundary` vertex has zero distance;
-- a distant point outside the nominal FOV is positive;
-- empty partial FOV works;
-- empty full-circle FOV works;
-- the occluded wall scenario produces positive values behind the wall.
-
-### E. Mathematical property test
-
-For representative point pairs, verify the 1-Lipschitz property:
-
-\[
-|d(p)-d(q)| \leq \|p-q\|_2 + \epsilon.
-\]
-
-### F. Field tests
-
-Verify:
-
-- field array dimensions;
-- exact requested bounds;
-- mesh orientation;
-- correct values at known nodes;
-- invalid bounds and grid sizes;
-- consistent output from equivalent evaluators.
-
-Graphics tests may initially be limited to checking that valid graphics handles
-are produced using an invisible test figure. Pixel-level plot testing is too
-brittle for the first implementation.
-
-**Status (2026-08-17):** Completed in `tests/TestMetrics.m`, including exact
-square distances, diagnostics, boundary validation, concavity, FOV integration,
-the Lipschitz property, field sampling, contour handles, and the static demo.
-
----
-
-## Phase 6: Demonstration and documentation
-
-Add:
-
-```text
-scripts/runDistanceContours.m
-```
-
-The script should:
-
-1. Create `scenarios.singleWall`.
-2. Cast rays.
-3. Select bounds around the nominal FOV.
-4. Evaluate the signed-distance field.
-5. Plot the scenario without dense ray lines.
-6. Overlay signed contours.
-7. Emphasize the zero contour.
-8. Display the sign convention in the title or colorbar label.
-
-Update the README with a minimal usage example and, if useful, a generated
-figure.
-
-**Status (2026-08-17):** Complete. `scripts/runSingleScenario.m` performs
-items 1--8 using the sampled visible boundary and
-`metrics.signedEuclideanDistance`. It replaces the proposed separate
-`runDistanceContours.m`, and the README now includes the equivalent usage.
-
----
-
-## Phase 7: Add an interactive heading explorer
-
-Add a moderate-complexity programmatic MATLAB interface that lets the user
-change observer heading with a slider. Visibility should update while the
-slider moves, but the signed-distance field and contours should be recomputed
-only after the user releases the slider.
-
-Prefer a text-based programmatic UI over an App Designer `.mlapp` file so the
-interface remains easy to review and version. Add:
-
-```text
-+viz/interactiveScenario.m
-scripts/runInteractiveScenario.m
-```
-
-`viz.interactiveScenario` should own the figure, controls, callback state, and
-rendering workflow. The script should remain a small entry point that runs
-`startup.m`, creates `scenarios.singleWall`, and launches the interface.
-
-Use a reusable API such as:
-
-```matlab
-ui = viz.interactiveScenario(scenario, ...
-    'GridSize', [241, 241], ...
-    'ContourLevels', -5:0.5:5, ...
-    'Padding', 0.5, ...
-    'Visible', true);
-```
-
-Validate these options consistently with the existing visualization and field
-functions. The `Visible` option permits headless graphics smoke tests.
-
-### Initial scope
-
-- [x] Create a `uifigure` containing a `uiaxes`, heading slider, numeric
-  heading label, and update-status label.
-- [x] Use heading degrees in the UI and convert to radians only when creating
-  `fov.Observer` objects.
-- [x] Give the slider limits `[-180, 180]` degrees and normalize the initial
-  observer heading into that interval.
-- [x] Recreate the immutable observer on each update while preserving its
-  position and `Fov` object.
-- [x] Keep observer position, maximum range, opening angle, obstacles, ray
-  count, contour levels, and grid resolution fixed in this first interface.
-- [x] Return a structure containing the figure, axes, and principal controls
-  so the interface can be inspected and tested programmatically.
-
-Observer dragging, obstacle editing, continuous contour updates, and a general
-App Designer application are explicitly outside this phase.
-
-### Fixed view and field domain
-
-- [x] Compute one square domain centered on the observer using
-  `MaxRange + padding` in each direction.
-- [x] Use that domain for both metric sampling and fixed axes limits for every
-  heading.
-- [x] Do not derive bounds from the rotated nominal boundary; fixed bounds
-  prevent the plot from jumping while the heading changes.
-- [x] Use the existing full-quality defaults initially: the scenario ray count,
-  a `[241, 241]` field grid, and contour levels `-5:0.5:5` unless options
-  override them.
-
-### Slider callback behavior
-
-Use both slider callbacks with separate quality levels:
-
-#### `ValueChangingFcn`: fast preview while dragging
-
-1. Read `event.Value` in degrees and update the heading label.
-2. Create the replacement observer and cast visibility rays.
-3. Clear and redraw the nominal and visible FOV without a metric field,
-   contours, or dense ray lines.
-4. Restore the fixed axes limits.
-5. Use `drawnow limitrate` to keep interaction responsive.
-
-Do not call `metrics.sampleField` from `ValueChangingFcn`.
-
-#### `ValueChangedFcn`: full update after release
-
-1. Set the status label to indicate that contours are being computed.
-2. Recreate or reuse the visibility result for the final slider value.
-3. Create an evaluator using `metrics.signedEuclideanDistance` and the final
-   `result.VisibleBoundary`.
-4. Evaluate the full fixed-domain field with `metrics.sampleField`.
-5. Redraw the scenario and metric contours through `viz.plotScenario`.
-6. Restore fixed axes limits and update the title with the final heading and
-   negative-inside convention.
-7. Return the status label to ready even if rendering fails; use cleanup or
-   guarded callback logic where appropriate.
-
-The initial render should use the same full-update path as
-`ValueChangedFcn`, ensuring startup and post-drag output cannot diverge.
-
-### Graphics lifecycle
-
-- [x] Start with a clear-and-redraw implementation rather than mutating every
-  patch and contour object individually.
-- [x] Remove or reuse an existing colorbar before redraw so repeated slider
-  updates do not accumulate colorbars or axes.
-- [x] Ensure legends contain scenario objects but not individual metric
-  contour groups.
-- [x] Prevent stale callbacks from leaving the UI in a partially updated state.
-- [x] Keep UI orchestration in `viz.interactiveScenario`; continue to use
-  `fov.castRays`, `metrics.signedEuclideanDistance`, `metrics.sampleField`,
-  `viz.plotScenario`, and `viz.plotMetricContours` for their existing roles.
-
-### Verification and acceptance criteria
-
-- [x] Add a graphics smoke test that constructs the UI invisibly and verifies
-  its returned figure, axes, slider, and labels are valid graphics objects.
-- [x] Verify the initial view includes signed-distance contours.
-- [x] Verify dragging changes heading and visible geometry without evaluating
-  or drawing contours during `ValueChangingFcn`.
-- [x] Verify releasing the slider recomputes contours for the final heading.
-- [x] Verify axes limits remain fixed across multiple headings.
-- [x] Verify repeated updates do not accumulate colorbars, legends, or stale
-  graphics objects.
-- [ ] Manually check that dragging is responsive and record any performance
-  limitation without adding a machine-dependent timing assertion.
-- [x] Document how to launch the interactive explorer in the README.
-
-**Status (2026-08-17):** Implemented and covered by invisible-UI smoke tests.
-The release callback queues its final heading if a preview is still rendering,
-so the full contour update cannot be discarded by callback interleaving. Manual
-responsiveness while dragging remains to be checked in an interactive MATLAB
-desktop session.
-
----
-
-## Phase 8: Quantify the two approximations separately
-
-### Ray-count study
-
-Implement the existing placeholder:
-
-```text
-scripts/compareRayCounts.m
-```
-
-Use fixed query points and ray counts such as:
-
-```matlab
-[31, 61, 121, 241, 481, 961]
-```
-
-For each ray count:
-
-1. Cast the same scenario.
-2. Build the sampled visible boundary.
-3. Evaluate distance at exactly the same query points.
-4. Compare against an analytical reference for an empty full-circle FOV or a
-   very high-ray-count reference for an occluded scenario.
-5. Record maximum error, RMSE, and runtime.
-
-For an empty full-circle FOV, the analytical reference is:
-
-\[
-d(p) = \|p-o\| - R.
-\]
-
-The sampled polygon is inscribed inside the true circle, so convergence is
-straightforward to visualize and quantify.
-
-### Grid-resolution study
-
-Add:
-
-```text
-scripts/compareGridResolutions.m
-```
-
-Keep one fixed visibility boundary and vary grid sizes such as:
-
-```matlab
-[51, 51]
-[101, 101]
-[201, 201]
-[401, 401]
-```
-
-Compare interpolated field values against direct distance evaluations at fixed
-off-grid probe points. This isolates grid interpolation from ray geometry.
-
-Do not change ray count and grid size in the same convergence result.
-
----
-
-## Phase 9: Improve visibility geometry after establishing the benchmark
-
-Once the baseline is working, address occlusion-transition artifacts without
-changing the signed-distance contract.
-
-### Recommended ray-casting refactor
-
-Separate angular selection from ray intersection:
-
-```matlab
-result = fov.castRayAngles(observer, obstacles, rayAngles);
-```
-
-Retain `fov.castRays` as the uniform-sampling wrapper:
-
-```matlab
-angles = fov.sampleRayAngles(observer, numRays);
-result = fov.castRayAngles(observer, obstacles, angles);
-```
-
-This enables alternative samplers without duplicating intersection logic.
-
-### Critical-angle sampling
-
-For each obstacle vertex:
-
-1. Compute its bearing from the observer.
-2. Keep bearings inside the FOV.
-3. Add rays at or immediately to either side of the bearing.
-4. Merge them with uniform samples.
-5. Sort and remove near-duplicates.
-
-This should represent shadow boundaries more accurately than uniform sampling
-alone. The direct Euclidean metric does not need to change; only the sampled
-visible polygon improves.
-
----
-
-## Recommended implementation sequence
-
-- [x] Document the signed-distance contract.
-- [x] Implement boundary normalization and point-to-segment distance.
-- [x] Implement `metrics.signedEuclideanDistance`.
-- [x] Complete exact metric tests.
-- [x] Implement generic `metrics.sampleField`.
-- [x] Implement `viz.plotMetricContours`.
-- [x] Add the contour demonstration and README example.
-- [ ] Add the interactive heading explorer with contours recomputed after
-  slider release.
-- [ ] Implement ray-count and grid-resolution studies.
-- [ ] Add critical-angle sampling.
-- [ ] Introduce additional metric contracts through the same field evaluator
-  interface.
-
-The order is intended to produce a usable benchmark quickly while preserving a
-clean path toward alternative distance definitions and an eventual interactive
-interface.
-
-### Implementation note (2026-08-17)
-
-Phases 1 through 6 are complete and the programmatically verifiable parts of
-Phase 7 are complete. The full MATLAB suite passed on 2026-08-17. Manual
-desktop responsiveness testing for slider dragging remains before Phase 7 can
-be marked fully complete. Phase 8 convergence studies and later work have not
-started.
+The moving-pair workflow is the recommended new entry point. Interactive
+heading controls are retained only for legacy static signed-distance analysis.
