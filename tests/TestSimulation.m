@@ -176,6 +176,16 @@ classdef TestSimulation < matlab.unittest.TestCase
             verifyGreaterThan(testCase, result.Metrics.PassThroughRangeResidual(1), 0);
         end
 
+        function runnerProvidesCurrentFollowerReferenceToPolicy(testCase)
+            scenario = shortScenario();
+            scenario.Follower.Reference = struct('Times', 0, 'Values', [0.2, -0.1, 0.3]);
+            scenario.Observer.Policy = @captureFollowerReferencePolicy;
+            result = simulation.runScenario(scenario);
+
+            verifyEqual(testCase, result.PolicyDiagnostics{1}.FollowerReference, ...
+                [0.2, -0.1, 0.3]);
+        end
+
         function customPolicyCanHoldObserverWhileFollowerMoves(testCase)
             scenario = shortScenario();
             scenario.Observer.Policy = @zeroPolicy;
@@ -265,7 +275,55 @@ classdef TestSimulation < matlab.unittest.TestCase
             hidden = viz.animateSimulation(unsupported, 'Visible', false, ...
                 'FrameRate', 1e9, 'Speed', 1e9);
             hidden.UpdateFrame(1);
-            verifyEqual(testCase, get(hidden.EstimatedBoundary, 'Visible'), 'off');
+            verifyEqual(testCase, visibilityState(hidden.EstimatedBoundary), "off");
+        end
+
+        function animationCanDeferPlayback(testCase)
+            result = simulation.runScenario(shortScenario());
+            beforeFigures = findall(groot, 'Type', 'figure');
+            testCase.addTeardown(@() deleteNewFigures(beforeFigures));
+            handles = viz.animateSimulation(result, 'Visible', false, 'AutoPlay', false);
+
+            verifyTrue(testCase, all(isnan(get(handles.Observer, 'XData'))));
+            handles.UpdateFrame(1);
+            verifyEqual(testCase, get(handles.Observer, 'XData'), result.ObserverPose(1, 1));
+            verifyError(testCase, @() viz.animateSimulation(result, 'AutoPlay', 1), ...
+                'viz:animateSimulation:InvalidOption');
+        end
+
+        function savesDefaultKeyFramesInScenarioTimestampDirectory(testCase)
+            result = simulation.runScenario(shortScenario());
+            result.Config.Name = "Frame demo / control?";
+            resultBeforeExport = result;
+            outputRoot = tempname;
+            beforeFigures = findall(groot, 'Type', 'figure');
+            testCase.addTeardown(@() removeTemporaryDirectory(outputRoot));
+
+            manifest = viz.saveSimulationFrames(result, 'OutputRoot', outputRoot);
+
+            verifyLessThanOrEqual(testCase, numel(manifest.FrameIndices), 5);
+            verifyEqual(testCase, manifest.FrameIndices(1), 1);
+            verifyEqual(testCase, manifest.FrameIndices(end), numel(result.Time));
+            verifyEqual(testCase, fileparts(manifest.Directory), ...
+                fullfile(outputRoot, 'frame-demo-control'));
+            verifyTrue(testCase, all(cellfun(@isFile, manifest.FilePaths)));
+            verifyEqual(testCase, result, resultBeforeExport);
+            verifyEqual(testCase, findall(groot, 'Type', 'figure'), beforeFigures);
+        end
+
+        function savesExplicitKeyFramesOnly(testCase)
+            result = simulation.runScenario(shortScenario());
+            outputRoot = tempname;
+            testCase.addTeardown(@() removeTemporaryDirectory(outputRoot));
+
+            manifest = viz.saveSimulationFrames(result, 'OutputRoot', outputRoot, ...
+                'FrameIndices', [numel(result.Time), 1, numel(result.Time)]);
+
+            verifyEqual(testCase, manifest.FrameIndices, [1; numel(result.Time)]);
+            verifyEqual(testCase, numel(manifest.FilePaths), 2);
+            verifyError(testCase, @() viz.saveSimulationFrames(result, ...
+                'OutputRoot', outputRoot, 'FrameIndices', 0), ...
+                'viz:saveSimulationFrames:InvalidFrameIndices');
         end
 
         function animationDistinguishesOracleMeasurementAndBelief(testCase)
@@ -307,7 +365,8 @@ classdef TestSimulation < matlab.unittest.TestCase
             measurementRange = get(handles.ScanLine, 'YData');
             verifyEqual(testCase, oracleRange(:), raw.Distances, 'AbsTol', 1e-12);
             verifyEqual(testCase, measurementRange(:), scan.Ranges, 'AbsTol', 1e-12);
-            verifyEqual(testCase, get(handles.MeanLine, 'YData'), belief.Mean, ...
+            meanRange = get(handles.MeanLine, 'YData');
+            verifyEqual(testCase, meanRange(:), belief.Mean(:), ...
                 'AbsTol', 1e-12);
             verifyNotEqual(testCase, scan.Ranges(scan.HasReturn), ...
                 raw.Distances(raw.IsOccluded));
@@ -325,14 +384,14 @@ classdef TestSimulation < matlab.unittest.TestCase
 
             defaultDisplay = viz.animateSimulation(result, 'Visible', false, ...
                 'FrameRate', 1e9, 'Speed', 1e9);
-            verifyEqual(testCase, get(defaultDisplay.Rays, 'Visible'), 'on');
-            verifyEqual(testCase, get(defaultDisplay.HitPoints, 'Visible'), 'off');
+            verifyEqual(testCase, visibilityState(defaultDisplay.Rays), "on");
+            verifyEqual(testCase, visibilityState(defaultDisplay.HitPoints), "off");
 
             impactOnly = viz.animateSimulation(result, 'Visible', false, ...
                 'FrameRate', 1e9, 'Speed', 1e9, ...
                 'ShowRays', false, 'ShowHitPoints', true);
-            verifyEqual(testCase, get(impactOnly.Rays, 'Visible'), 'off');
-            verifyEqual(testCase, get(impactOnly.HitPoints, 'Visible'), 'on');
+            verifyEqual(testCase, visibilityState(impactOnly.Rays), "off");
+            verifyEqual(testCase, visibilityState(impactOnly.HitPoints), "on");
             hiddenRayX = get(impactOnly.Rays, 'XData');
             hiddenRayY = get(impactOnly.Rays, 'YData');
             artists = findall(impactOnly.Figure);
@@ -340,8 +399,9 @@ classdef TestSimulation < matlab.unittest.TestCase
                 impactOnly.UpdateFrame(index);
                 expected = result.RawCasts{index}.EndPoints( ...
                     result.RawCasts{index}.IsOccluded, :);
-                verifyEqual(testCase, [get(impactOnly.HitPoints, 'XData')(:), ...
-                    get(impactOnly.HitPoints, 'YData')(:)], expected, 'AbsTol', 1e-12);
+                hitX = get(impactOnly.HitPoints, 'XData');
+                hitY = get(impactOnly.HitPoints, 'YData');
+                verifyEqual(testCase, [hitX(:), hitY(:)], expected, 'AbsTol', 1e-12);
                 verifyEqual(testCase, get(impactOnly.Rays, 'XData'), hiddenRayX);
                 verifyEqual(testCase, get(impactOnly.Rays, 'YData'), hiddenRayY);
                 verifyEqual(testCase, findall(impactOnly.Figure), artists);
@@ -350,8 +410,8 @@ classdef TestSimulation < matlab.unittest.TestCase
             both = viz.animateSimulation(result, 'Visible', false, ...
                 'FrameRate', 1e9, 'Speed', 1e9, ...
                 'ShowRays', true, 'ShowHitPoints', true);
-            verifyEqual(testCase, get(both.Rays, 'Visible'), 'on');
-            verifyEqual(testCase, get(both.HitPoints, 'Visible'), 'on');
+            verifyEqual(testCase, visibilityState(both.Rays), "on");
+            verifyEqual(testCase, visibilityState(both.HitPoints), "on");
             both.UpdateFrame(1);
             raw = result.RawCasts{1};
             expectedRayX = [repmat(raw.Origin(1), numel(raw.Distances), 1), ...
@@ -367,8 +427,8 @@ classdef TestSimulation < matlab.unittest.TestCase
             neither = viz.animateSimulation(result, 'Visible', false, ...
                 'FrameRate', 1e9, 'Speed', 1e9, ...
                 'ShowRays', false, 'ShowHitPoints', false);
-            verifyEqual(testCase, get(neither.Rays, 'Visible'), 'off');
-            verifyEqual(testCase, get(neither.HitPoints, 'Visible'), 'off');
+            verifyEqual(testCase, visibilityState(neither.Rays), "off");
+            verifyEqual(testCase, visibilityState(neither.HitPoints), "off");
             hiddenRayX = get(neither.Rays, 'XData');
             hiddenRayY = get(neither.Rays, 'YData');
             hiddenHitX = get(neither.HitPoints, 'XData');
@@ -421,6 +481,11 @@ input = reference;
 diagnostics = struct('ObservedRange', observation.Belief.Mean(1));
 end
 
+function [input, state, diagnostics] = captureFollowerReferencePolicy(observation, reference, state)
+input = reference;
+diagnostics = struct('FollowerReference', observation.FollowerReference);
+end
+
 function estimator = makeBeliefOverride(field, value)
 passThrough = estimation.makePassThroughEstimator();
 estimator = passThrough;
@@ -435,6 +500,20 @@ end
 function [input, state, diagnostics] = zeroPolicy(~, ~, state)
 input = [0, 0, 0];
 diagnostics = struct('Method', "zero-test-policy");
+end
+
+function value = visibilityState(graphicsHandle)
+value = string(get(graphicsHandle, 'Visible'));
+end
+
+function result = isFile(path)
+result = exist(path, 'file') == 2;
+end
+
+function removeTemporaryDirectory(path)
+if exist(path, 'dir')
+    rmdir(path, 's');
+end
 end
 
 function deleteNewFigures(beforeFigures)

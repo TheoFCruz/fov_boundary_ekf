@@ -10,6 +10,9 @@ pose, follower/target pose, occupancy, or a persistent world map.
 Checkpoint 1 is a deterministic foundation: a moving observer/follower, static
 convex polygon obstacles, noiseless ray-cast scans, a pass-through estimator, a
 replaceable policy, a headless deterministic runner, and offline replay.
+Static selective replay frame export is permitted under `+viz` as a replay-only
+artifact workflow; it must remain efficient and must not affect simulation
+state or logs. Generated `frames/` output is ignored by Git.
 Static signed-distance and contour functionality remains supported, but is
 secondary/legacy for new development. Do not extend `viz.interactiveScenario`
 or `scripts/runInteractiveScenario.m` as the primary workflow.
@@ -74,7 +77,9 @@ entry points include `simulation.runScenario`, `sensing.raycastScan`,
   next scan is passed to `Correct`.
 - Rendering/replay consumes logs. Playback settings only change displayed
   samples and must always include the final frame. Offline logs are not
-  estimator memory.
+  estimator memory. Selective static frame export may render only explicitly
+  requested logged samples (with a small default selection) and must not add
+  playback pauses or alter simulation state/logs.
 - The estimator lifecycle remains `Initialize`, `Predict`, `Correct`.
   Estimators receive scans and known motion through that lifecycle, not obstacle
   polygons, raw cast/oracle visibility, future inputs, or full log history.
@@ -122,7 +127,9 @@ controller.
   persistent maps or scan archives, hidden-surface models, controller redesign
   or proofs, pursuit optimization, CBF/QP, collision or actuator dynamics,
   base-link guarantees, ROS/CrazySim, App Designer/interactive physics, global
-  smoothing, or video export.
+  smoothing, or video export. Static selective replay PNG export is allowed
+  under `+viz` for small, efficient key-frame selections; do not expand it into
+  video export.
 - Do not add a required toolbox or dependency without explicit justification
   and corresponding documentation/tests.
 
@@ -148,5 +155,7 @@ table(results)
 The full suite is `runtests('tests')`. For graphics-affecting changes, also
 manually replay `scenarios.movingPair()` on a desktop. State exactly what ran
 and passed; if MATLAB or graphics are unavailable, do not claim success.
+The selective replay frame-export feature has not had a final MATLAB or desktop
+rerun after its implementation; do not claim that it has passed verification.
 Do not build or compile routinely, and do not commit, push, or create a pull
 request unless explicitly requested.

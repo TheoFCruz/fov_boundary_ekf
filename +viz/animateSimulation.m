@@ -5,7 +5,8 @@ function handles = animateSimulation(result, varargin)
 %   alter the numerical result. The returned handles are useful for smoke tests.
 %   handles.UpdateFrame(index) redraws one logged sample without advancing physics.
 %   ShowRays draws origin-to-endpoint segments; ShowHitPoints marks only
-%   obstacle-intersection endpoints.
+%   obstacle-intersection endpoints. AutoPlay=false returns the handles without
+%   replaying frames, for selective offline rendering.
 
 validateResult(result);
 parser = inputParser;
@@ -15,14 +16,16 @@ addParameter(parser, 'FrameRate', result.Config.Playback.FrameRate);
 addParameter(parser, 'Speed', result.Config.Playback.Speed);
 addParameter(parser, 'ShowRays', true);
 addParameter(parser, 'ShowHitPoints', false);
+addParameter(parser, 'AutoPlay', true);
 parse(parser, varargin{:});
 options = parser.Results;
 if ~(islogical(options.Visible) && isscalar(options.Visible) && ...
         isPositiveScalar(options.FrameRate) && isPositiveScalar(options.Speed) && ...
-        isLogicalScalar(options.ShowRays) && isLogicalScalar(options.ShowHitPoints))
+        isLogicalScalar(options.ShowRays) && isLogicalScalar(options.ShowHitPoints) && ...
+        isLogicalScalar(options.AutoPlay))
     error('viz:animateSimulation:InvalidOption', ...
-        ['Visible, ShowRays, and ShowHitPoints must be logical scalars; ', ...
-        'FrameRate and Speed must be positive scalars.']);
+        ['Visible, ShowRays, ShowHitPoints, and AutoPlay must be logical scalars; ', ...
+         'FrameRate and Speed must be positive scalars.']);
 end
 
 visibility = 'off';
@@ -35,6 +38,9 @@ worldAxes = subplot(1, 2, 1, 'Parent', figureHandle);
 boundaryAxes = subplot(1, 2, 2, 'Parent', figureHandle);
 handles = createGraphics(figureHandle, worldAxes, boundaryAxes, result, options);
 handles.UpdateFrame = @(index) updateGraphics(handles, result, index, options);
+if ~options.AutoPlay
+    return;
+end
 frameIndices = selectFrames(result.Time, result.Config.Time.Step, ...
     options.FrameRate, options.Speed);
 

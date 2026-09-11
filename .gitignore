@@ -1,2 +1,5 @@
 # Keep repository-specific agent instructions tracked despite global ignores.
 !AGENTS.md
+
+# Generated replay key frames.
+/frames/

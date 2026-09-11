@@ -47,6 +47,7 @@ for index = 1:intervalCount
         scenario.Observer.Reference, time(index));
     followerReference = simulation.sampleVelocityReference( ...
         scenario.Follower.Reference, time(index));
+    observation.FollowerReference = followerReference;
     [appliedObserverInput, policyState, policyDiagnostics{index}] = ...
         scenario.Observer.Policy(observation, observerReference, policyState);
     validateInput(appliedObserverInput, 'observer policy output');

@@ -37,6 +37,7 @@ run('startup.m');
 scenario = scenarios.movingPair();
 scenario.Sensor.RangeNoiseStd = 0.05; % m; set to zero for noiseless scans
 scenario.Sensor.Seed = 17;
+scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy();
 result = simulation.runScenario(scenario);
 viz.plotSimulationSummary(result);
 % Full ray segments (default):
@@ -50,7 +51,7 @@ viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);
 time. It returns K+1 synchronized pose, scan, and posterior samples for K
 input intervals, so `result` can be saved directly to a MAT file. Replay speed
 and frame rate affect only displayed samples. `scripts/runMovingPair.m` runs
-the same sequence.
+the CBF-QP `scenarios.controlTest()` configuration for controller diagnostics.
 
 `ShowRays` draws each sampled ray from the observer to its endpoint.
 `ShowHitPoints` marks only endpoints that intersect an obstacle; it does not
@@ -59,6 +60,47 @@ may be enabled together or disabled independently. Disabled ray and impact
 displays are not updated during replay, which reduces graphics transfer work.
 Replay pacing accounts for graphics-render time, so slow rendering reduces the
 remaining inter-frame pause rather than extending it.
+
+### Selective replay frame export
+
+Export completed replay logs as static PNG key frames with
+`viz.saveSimulationFrames`. By default it writes to the repository-root
+`frames/` directory and selects no more than five evenly spaced logged samples,
+including the first and final samples:
+
+```matlab
+manifest = viz.saveSimulationFrames(result);
+
+% Export only these logged samples with explicit display options:
+manifest = viz.saveSimulationFrames(result, ...
+    'FrameIndices', [1, 25, 50], ...
+    'Resolution', 150, ...
+    'ShowRays', true, ...
+    'ShowHitPoints', false);
+```
+
+`FrameIndices` must contain valid logged sample indices; they are sorted and
+deduplicated. `OutputRoot` changes the output root, `Resolution` defaults to
+120 DPI, `ShowRays` defaults to `false`, and `ShowHitPoints` defaults to
+`true`. Each call creates a directory of the form
+`frames/<sanitized-scenario-name>/<yyyy-mm-dd_HH-MM-SS>[/suffix]/` (or the
+corresponding `OutputRoot`) and writes `frame_*.png` files there. The returned
+manifest contains `Directory`, `FrameIndices`, `Times`, and `FilePaths`, which
+respectively identify the output directory, selected logged samples, their
+logged times, and the corresponding PNG paths.
+
+Only explicitly selected frames are rendered and exported, so small selections
+should generally finish in seconds rather than minutes, subject to graphics
+hardware. Export uses one hidden persistent replay figure, performs no playback
+pauses, and closes that figure afterward. It consumes the completed `result`
+only; it does not advance the simulation or alter its state or logs. This is
+static key-frame export, not video export. It requires base-MATLAB
+`exportgraphics` (MATLAB R2020a or newer). For lower-level offline rendering,
+`viz.animateSimulation(result, 'AutoPlay', false)` returns replay handles
+without automatically replaying the log.
+
+The export feature has not had a final MATLAB or desktop rerun after this
+feature; no successful verification is claimed here.
 
 `scenario.Sensor.RangeNoiseStd` defaults to zero. A positive value adds
 zero-mean Gaussian noise to first-return ranges only; values outside
@@ -76,6 +118,28 @@ This is not an EKF or confidence guarantee. Replace
 `Correct`, or replace `scenario.Observer.Policy` with a function accepting the
 current posterior, poses, base position, and reference velocity. Neither seam
 receives obstacle polygons or raw ray-cast oracle data.
+
+`control.makeSignedDistanceCbfPolicy` is the Milestone-B continuous-time CBF-QP
+baseline and requires MATLAB Optimization Toolbox (`quadprog`). It minimally
+modifies the configured observer reference using the current belief-derived
+sampled polygon and the current known follower reference velocity. Its default
+configuration uses a `0.1 m` interior margin, `CbfRate = 4 1/s`, body-input
+bounds `[-0.5,-0.5,-1]` to `[0.5,0.5,1]`, and quadratic slack. Inspect
+`result.PolicyDiagnostics` for the barrier, gradients, target drift, slack, QP
+exit flag, and fallback status. This constrains the estimated sampled polygon at
+controller samples only; it is not a true-FoV, intersample, collision, or safety
+guarantee. Its pose finite-difference step defaults to `[1e-3, 1e-3, 1e-5]`
+for observer `[x, y, yaw]` (m, m, rad); the smaller yaw perturbation avoids
+spurious gradient rejection near the sampled range-cap boundary.
+
+For a deterministic closed-loop control demonstration, use
+`scenarios.controlTest()`. It gives the follower a constant forward body-frame
+reference of `[0.4, 0, 0]` from an initial position near the range cap, while
+the observer has a zero nominal reference and uses the CBF-QP policy. The
+obstacle-free setup intentionally isolates belief-derived range-cap containment:
+any observer motion comes from the policy's visibility correction, not its
+nominal reference. It is an experiment scenario, not a pursuit or safety
+benchmark.
 
 The follower state is intentionally known to the policy in this checkpoint.
 There is no pursuit, collision response, base-link constraint, or continuous
