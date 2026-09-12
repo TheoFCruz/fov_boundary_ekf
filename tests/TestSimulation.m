@@ -36,6 +36,16 @@ classdef TestSimulation < matlab.unittest.TestCase
                 'simulation:validateScenario:InvalidReference');
         end
 
+        function acceptsFloatingPointAlignedFinalReference(testCase)
+            scenario = shortScenario();
+            scenario.Observer.Reference = struct( ...
+                'Times', [0; 0.1 + 0.2], 'Values', [1, 0, 0; 0, 0, 0]);
+
+            result = simulation.runScenario(scenario);
+
+            verifyEqual(testCase, result.Time(end), 0.3, 'AbsTol', 1e-12);
+        end
+
         function runnerSynchronizesSamplesAndInputs(testCase)
             scenario = shortScenario();
             result = simulation.runScenario(scenario);
@@ -324,6 +334,11 @@ classdef TestSimulation < matlab.unittest.TestCase
             verifyError(testCase, @() viz.saveSimulationFrames(result, ...
                 'OutputRoot', outputRoot, 'FrameIndices', 0), ...
                 'viz:saveSimulationFrames:InvalidFrameIndices');
+            invalidRoot = tempname;
+            verifyError(testCase, @() viz.saveSimulationFrames(result, ...
+                'OutputRoot', invalidRoot, 'Resolution', 0), ...
+                'viz:saveSimulationFrames:InvalidOption');
+            verifyFalse(testCase, exist(invalidRoot, 'dir'));
         end
 
         function animationDistinguishesOracleMeasurementAndBelief(testCase)

@@ -170,8 +170,9 @@ classdef TestMetrics < matlab.unittest.TestCase
 
         function runsSingleScenarioContourDemo(testCase)
             originalVisibility = get(groot, 'DefaultFigureVisible');
+            beforeFigures = findall(groot, 'Type', 'figure');
             set(groot, 'DefaultFigureVisible', 'off');
-            cleanup = onCleanup(@() restoreFigures(originalVisibility));
+            cleanup = onCleanup(@() restoreFigures(originalVisibility, beforeFigures));
 
             projectRoot = fileparts(fileparts(mfilename('fullpath')));
             run(fullfile(projectRoot, 'scripts', 'runSingleScenario.m'));
@@ -228,7 +229,8 @@ function boundary = squareBoundary()
 boundary = [-1, -1; 1, -1; 1, 1; -1, 1; -1, -1];
 end
 
-function restoreFigures(originalVisibility)
+function restoreFigures(originalVisibility, beforeFigures)
 set(groot, 'DefaultFigureVisible', originalVisibility);
-close(findall(groot, 'Type', 'figure'));
+figures = findall(groot, 'Type', 'figure');
+delete(figures(~ismember(figures, beforeFigures)));
 end

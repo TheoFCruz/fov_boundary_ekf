@@ -7,6 +7,7 @@ function obstacle = polygonObstacle(varargin)
 % Vertices must be ordered around the polygon boundary. A repeated final
 % copy of the first vertex is accepted and removed.
 
+% Accept either a teaching-friendly unnamed polygon or an explicit label.
 if nargin == 1
     name = "Obstacle";
     vertices = varargin{1};
@@ -36,6 +37,7 @@ if ~(isnumeric(vertices) && isreal(vertices) && ismatrix(vertices) && ...
         'Vertices must be a finite real numeric N-by-2 array.');
 end
 
+% Remove a repeated closing vertex before testing the polygon itself.
 vertices = double(vertices);
 
 if size(vertices, 1) >= 2 && isequal(vertices(1, :), vertices(end, :))
@@ -53,6 +55,7 @@ if any(all(diff(vertices, 1, 1) == 0, 2)) || ...
         'Polygon vertices must be unique and non-adjacent duplicates are not allowed.');
 end
 
+% Convex ordered vertices turn consistently around the obstacle boundary.
 nextVertex = [2:size(vertices, 1), 1];
 edges = vertices(nextVertex, :) - vertices;
 nextEdges = edges(nextVertex, :);
@@ -67,6 +70,7 @@ relativeNext = relativeVertices(nextVertex, :);
 doubleArea = sum(relativeVertices(:, 1) .* relativeNext(:, 2) - ...
     relativeNext(:, 1) .* relativeVertices(:, 2));
 
+% Area and turn checks reject collapsed or concave obstacle geometry.
 if abs(doubleArea) <= tolerance
     error('fov:polygonObstacle:DegeneratePolygon', ...
         'Polygon vertices must enclose a nonzero area.');

@@ -17,6 +17,7 @@ if parser.Results.Visible
 end
 figureHandle = figure('Name', 'Simulation summary', 'Color', 'w', ...
     'Visible', visibility);
+% Separate world motion from the sampled-boundary diagnostic time series.
 worldAxes = subplot(1, 2, 1, 'Parent', figureHandle);
 metricAxes = subplot(1, 2, 2, 'Parent', figureHandle);
 plotWorldSummary(worldAxes, result);
@@ -27,6 +28,8 @@ handles = struct('Figure', figureHandle, 'WorldAxes', worldAxes, ...
 end
 
 function plotWorldSummary(ax, result)
+%PLOTWORLDSUMMARY Draw static geometry beneath both agent trajectories.
+
 hold(ax, 'on');
 drawStaticWorld(ax, result.Config);
 plot(ax, result.ObserverPose(:, 1), result.ObserverPose(:, 2), '-', ...
@@ -45,6 +48,8 @@ finishWorldAxes(ax, result.Config, 'Simulation trajectories');
 end
 
 function plotMetricSummary(ax, result)
+%PLOTMETRICSUMMARY Show invalid-boundary samples explicitly at zero.
+
 hold(ax, 'on');
 plot(ax, result.Time, result.Metrics.SampledPolygonSignedDistance, ...
     'LineWidth', 1.4, 'Color', [0.10, 0.45, 0.75], ...
@@ -64,6 +69,8 @@ legend(ax, 'show', 'Location', 'best');
 end
 
 function drawStaticWorld(ax, config)
+%DRAWSTATICWORLD Render the scenario geometry shared by all replay samples.
+
 for index = 1:numel(config.Obstacles)
     vertices = config.Obstacles(index).Vertices;
     patch(ax, vertices(:, 1), vertices(:, 2), [0.25, 0.25, 0.25], ...

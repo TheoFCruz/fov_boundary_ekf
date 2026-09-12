@@ -2,16 +2,17 @@
 
 run('startup.m');
 scenario = scenarios.controlTest();
+% Tune a deliberately difficult CBF visibility experiment, not a safety demo.
 policyConfig = struct('DistanceMargin', 1.0, ...
     'CbfRate', 2, ...
     'PoseFiniteDifferenceStep', [1e-3; 1e-3; 1e-5]);
 scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy(policyConfig);
 scenario.Sensor.RangeNoiseStd = 0.1;
 result = simulation.runScenario(scenario);
+% The export default selects five replay key frames, including first and last.
 frameManifest = viz.saveSimulationFrames(result);
 viz.plotSimulationSummary(result);
 
-% Set ShowRays true for full origin-to-endpoint segments.
 viz.animateSimulation(result, ...
     'ShowRays', true, ...
     'ShowHitPoints', true, ...

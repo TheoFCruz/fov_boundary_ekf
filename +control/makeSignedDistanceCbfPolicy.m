@@ -5,6 +5,7 @@ function policy = makeSignedDistanceCbfPolicy(varargin)
 %   simulation.runScenario. The policy builds a frozen observer-local polygon
 %   from the current belief, never from raw casts or obstacle geometry.
 
+% Freeze the experiment's CBF choices when the policy callback is constructed.
 config = validateConfig(parseConfig(varargin{:}));
 if isempty(which('quadprog'))
     error('control:makeSignedDistanceCbfPolicy:MissingOptimizationToolbox', ...
@@ -15,12 +16,17 @@ options = optimoptions('quadprog', 'Algorithm', 'active-set', 'Display', 'off');
 policy = @applyPolicy;
 
     function [input, state, diagnostics] = applyPolicy(observation, reference, state)
-        reference = validateInput(reference, 'reference');
+        % The runner supplies the current posterior and pre-step agent snapshot.
+        reference = reshape(double(reference), 3, 1);
         diagnostics = initialDiagnostics(reference);
-        [observerPose, followerPose, followerReference, belief] = ...
-            validateObservation(observation);
+        observerPose = reshape(double(observation.ObserverPose), 3, 1);
+        followerPose = reshape(double(observation.FollowerPose), 3, 1);
+        followerReference = reshape(double(observation.FollowerReference), 3, 1);
+        belief = observation.Belief;
 
+        % Evaluate h = -d(p, F) - margin in the frozen local belief frame.
         try
+            % Build only belief-derived geometry so oracle data cannot enter the policy.
             localBoundary = localBoundaryFromBelief(belief);
             [barrier, signedDistance] = evaluateBarrier(localBoundary, observerPose, ...
                 followerPose(1:2), config.DistanceMargin);
@@ -36,6 +42,7 @@ policy = @applyPolicy;
             rethrow(exception);
         end
 
+        % Keep intermediate geometry quantities visible for offline diagnosis.
         diagnostics.SignedDistance = signedDistance;
         diagnostics.BarrierValue = barrier;
         diagnostics.ObserverPoseGradient = observerGradient;
@@ -43,6 +50,7 @@ policy = @applyPolicy;
         diagnostics.FiniteDifferenceMode = differenceMode;
         diagnostics.FiniteDifferenceQuality = differenceQuality;
 
+        % An ambiguous sampled-polygon derivative is not a valid QP constraint.
         if differenceQuality ~= "usable" || ...
                 ~(all(isfinite(observerGradient)) && all(isfinite(targetGradient)))
             [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
@@ -50,6 +58,7 @@ policy = @applyPolicy;
             return;
         end
 
+        % Map body-frame observer input and follower reference into h-dot terms.
         heading = observerPose(3);
         observerInputMap = [cos(heading), -sin(heading), 0; ...
             sin(heading), cos(heading), 0; 0, 0, 1];
@@ -59,6 +68,7 @@ policy = @applyPolicy;
         diagnostics.BodyInputCoefficient = coefficient;
         diagnostics.TargetDrift = targetDrift;
 
+        % Skip the QP when bounded observer motion cannot affect the barrier.
         minimumContribution = sum(min(coefficient.' .* config.InputLower, ...
             coefficient.' .* config.InputUpper));
         maximumContribution = sum(max(coefficient.' .* config.InputLower, ...
@@ -70,9 +80,11 @@ policy = @applyPolicy;
             return;
         end
 
+        % The QP minimally modifies the bounded nominal command.
         reference = min(max(reference, config.InputLower), config.InputUpper);
         diagnostics.NominalInput = reference;
         constraintRightHandSide = -config.CbfRate * barrier - targetDrift;
+        % Give quadprog a bound-feasible point with only required CBF slack.
         initialSlack = max(0, constraintRightHandSide - coefficient * reference);
         initialPoint = [reference; initialSlack];
         H = blkdiag(config.InputWeights, config.SlackPenalty);
@@ -82,23 +94,26 @@ policy = @applyPolicy;
         lowerBound = [config.InputLower; 0];
         upperBound = [config.InputUpper; Inf];
 
+        % Solve a bounded slack QP for a*u + slack >= -alpha*h - targetDrift.
         try
             [solution, ~, exitFlag, output] = quadprog(H, f, A, inequalityBound, ...
                 [], [], lowerBound, upperBound, initialPoint, options);
+            diagnostics.QpExitFlag = exitFlag;
+            diagnostics.QpIterations = output.iterations;
+            if ~isscalar(exitFlag) || ~isfinite(exitFlag) || exitFlag <= 0 || ...
+                    numel(solution) ~= 4 || any(~isfinite(solution)) || ...
+                    ~isfinite(diagnostics.QpIterations)
+                [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
+                    "qp-failure-fallback");
+                return;
+            end
         catch
             [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
                 "qp-failure-fallback");
             return;
         end
-        diagnostics.QpExitFlag = exitFlag;
-        diagnostics.QpIterations = outputIterations(output);
-        if ~isfinite(exitFlag) || exitFlag <= 0 || numel(solution) ~= 4 || ...
-                any(~isfinite(solution)) || ~isfinite(diagnostics.QpIterations)
-            [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
-                "qp-failure-fallback");
-            return;
-        end
 
+        % Classify the accepted command without claiming a true-FoV guarantee.
         controlInput = solution(1:3);
         input = controlInput.';
         slack = solution(4);
@@ -119,6 +134,9 @@ policy = @applyPolicy;
 end
 
 function config = parseConfig(varargin)
+%PARSECONFIG Merge an optional experiment struct with visible baseline values.
+
+% These defaults are teaching configuration, not universal controller tuning.
 defaults = struct( ...
     'DistanceMargin', 0.1, ...
     'CbfRate', 4, ...
@@ -128,6 +146,7 @@ defaults = struct( ...
     'SlackPenalty', 1e4, ...
     'PoseFiniteDifferenceStep', [1e-3; 1e-3; 1e-5]);
 if isempty(varargin)
+    % A scalar struct changes only the fields relevant to this baseline.
     config = defaults;
     return;
 end
@@ -149,28 +168,34 @@ end
 end
 
 function config = validateConfig(config)
-if ~isFiniteScalar(config.DistanceMargin) || config.DistanceMargin < 0 || ...
-        ~isFiniteScalar(config.CbfRate) || config.CbfRate <= 0 || ...
-        ~isFiniteScalar(config.SlackPenalty) || config.SlackPenalty <= 0
+%VALIDATECONFIG Keep only the QP assumptions needed by the constructor.
+
+if ~isscalar(config.DistanceMargin) || ~isfinite(config.DistanceMargin) || ...
+        config.DistanceMargin < 0 || ~isscalar(config.CbfRate) || ...
+        ~isfinite(config.CbfRate) || config.CbfRate <= 0 || ...
+        ~isscalar(config.SlackPenalty) || ~isfinite(config.SlackPenalty) || ...
+        config.SlackPenalty <= 0
     error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
         'DistanceMargin must be nonnegative; CbfRate and SlackPenalty must be positive.');
 end
-config.InputLower = validateVector(config.InputLower, 'InputLower');
-config.InputUpper = validateVector(config.InputUpper, 'InputUpper');
-if any(config.InputLower > config.InputUpper) || ...
+config.InputLower = double(config.InputLower(:));
+config.InputUpper = double(config.InputUpper(:));
+if any(~isfinite(config.InputLower)) || any(~isfinite(config.InputUpper)) || ...
+        numel(config.InputLower) ~= 3 || numel(config.InputUpper) ~= 3 || ...
+        any(config.InputLower > config.InputUpper) || ...
         any(config.InputLower > 0) || any(config.InputUpper < 0)
     error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
         'Input bounds must be ordered and contain the zero-command fallback.');
 end
-config.PoseFiniteDifferenceStep = validateVector( ...
-    config.PoseFiniteDifferenceStep, 'PoseFiniteDifferenceStep');
-if any(config.PoseFiniteDifferenceStep <= 0)
+config.PoseFiniteDifferenceStep = double(config.PoseFiniteDifferenceStep(:));
+if numel(config.PoseFiniteDifferenceStep) ~= 3 || ...
+        any(~isfinite(config.PoseFiniteDifferenceStep)) || ...
+        any(config.PoseFiniteDifferenceStep <= 0)
     error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
         'PoseFiniteDifferenceStep entries must be positive.');
 end
-if ~(isnumeric(config.InputWeights) && isreal(config.InputWeights) && ...
-        isequal(size(config.InputWeights), [3, 3]) && ...
-        all(isfinite(config.InputWeights(:))))
+if ~isequal(size(config.InputWeights), [3, 3]) || ...
+        any(~isfinite(config.InputWeights(:)))
     error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
         'InputWeights must be a finite 3-by-3 numeric matrix.');
 end
@@ -187,26 +212,15 @@ config.CbfRate = double(config.CbfRate);
 config.SlackPenalty = double(config.SlackPenalty);
 end
 
-function [observerPose, followerPose, followerReference, belief] = validateObservation(observation)
-required = {'Belief', 'ObserverPose', 'FollowerPose', 'FollowerReference'};
-if ~isstruct(observation) || ~all(isfield(observation, required))
-    error('control:makeSignedDistanceCbfPolicy:InvalidObservation', ...
-        'observation must include Belief, ObserverPose, FollowerPose, and FollowerReference.');
-end
-observerPose = validateInput(observation.ObserverPose, 'ObserverPose');
-followerPose = validateInput(observation.FollowerPose, 'FollowerPose');
-followerReference = validateInput(observation.FollowerReference, 'FollowerReference');
-belief = observation.Belief;
-end
-
 function boundary = localBoundaryFromBelief(belief)
-required = {'Angles', 'Mean', 'OpeningAngle', 'IsSupported'};
-if ~isstruct(belief) || ~all(isfield(belief, required)) || ...
-        ~islogical(belief.IsSupported) || ~iscolumn(belief.IsSupported) || ...
-        ~all(belief.IsSupported)
+%LOCALBOUNDARYFROMBELIEF Construct the current supported sampled polygon.
+
+% Unsupported directions must not become an invented closed visibility region.
+if ~all(belief.IsSupported)
     error('control:makeSignedDistanceCbfPolicy:InvalidBeliefGeometry', ...
         'The current belief must provide fully supported boundary geometry.');
 end
+% Boundary and distance validation preserve invalid-geometry fallback behavior.
 try
     boundary = fov.boundaryFromRanges([0, 0, 0], belief.Angles, belief.Mean, ...
         belief.OpeningAngle);
@@ -221,15 +235,20 @@ end
 end
 
 function [barrier, signedDistance] = evaluateBarrier(boundary, observerPose, targetPosition, margin)
+%EVALUATEBARRIER Express the fixed world target in observer-local coordinates.
+
 rotation = [cos(observerPose(3)), sin(observerPose(3)); ...
     -sin(observerPose(3)), cos(observerPose(3))];
-    targetLocal = rotation * (targetPosition(:) - observerPose(1:2));
+targetLocal = rotation * (targetPosition(:) - observerPose(1:2));
 signedDistance = metrics.signedEuclideanDistance(boundary, targetLocal.');
 barrier = -signedDistance - margin;
 end
 
 function [observerGradient, targetGradient, mode, quality] = finiteDifferenceGradients( ...
         boundary, observerPose, targetPosition, currentBarrier, config)
+%FINITEDIFFERENCEGRADIENTS Differentiate h without rebuilding belief geometry.
+
+% Perturb observer world pose while holding the local boundary fixed.
 observerGradient = zeros(1, 3);
 observerModes = strings(1, 3);
 observerUsable = false(1, 3);
@@ -244,6 +263,7 @@ for index = 1:3
     [observerGradient(index), observerModes(index), observerUsable(index)] = ...
         finiteDifference(currentBarrier, plusBarrier, minusBarrier, step);
 end
+% Perturb the known target position independently of observer motion.
 targetGradient = zeros(1, 2);
 targetModes = strings(1, 2);
 targetUsable = false(1, 2);
@@ -258,6 +278,7 @@ for index = 1:2
     [targetGradient(index), targetModes(index), targetUsable(index)] = ...
         finiteDifference(currentBarrier, plusBarrier, minusBarrier, step);
 end
+% Report whether every directional derivative can support the CBF constraint.
 allModes = [observerModes, targetModes];
 if all(allModes == "central")
     mode = "central";
@@ -273,6 +294,8 @@ end
 end
 
 function [gradient, mode, isUsable] = finiteDifference(current, plus, minus, step)
+%FINITEDIFFERENCE Prefer central differences and reject inconsistent secants.
+
 if isfinite(plus) && isfinite(minus)
     forward = (plus - current) / step;
     backward = (current - minus) / step;
@@ -300,17 +323,23 @@ end
 end
 
 function velocity = bodyToWorldVelocity(heading, bodyReference)
+%BODYTOWORLDVELOCITY Convert the follower's translational reference only.
+
 velocity = [cos(heading), -sin(heading); sin(heading), cos(heading)] * ...
     bodyReference(1:2);
 end
 
 function [input, diagnostics] = fallbackDiagnostics(diagnostics, status)
+%FALLBACKDIAGNOSTICS Record the explicit bounded zero-command experiment fallback.
+
 input = zeros(1, 3);
 diagnostics.AppliedInput = input;
 diagnostics.Status = status;
 end
 
 function diagnostics = initialDiagnostics(reference)
+%INITIALDIAGNOSTICS Preallocate one complete record for every policy interval.
+
 diagnostics = struct( ...
     'Method', "signed-distance-cbf-qp", ...
     'SignedDistance', NaN, ...
@@ -332,12 +361,16 @@ diagnostics = struct( ...
 end
 
 function result = isInvalidBeliefGeometry(exception)
+%ISINVALIDBELIEFGEOMETRY Identify expected constructed-boundary failures.
+
 result = strcmp(exception.identifier, ...
     'control:makeSignedDistanceCbfPolicy:InvalidBeliefGeometry') || ...
     isInvalidGeometryException(exception);
 end
 
 function result = isInvalidGeometryException(exception)
+%ISINVALIDGEOMETRYEXCEPTION Keep known geometry failures separate from bugs.
+
 identifiers = { ...
     'metrics:internal:normalizeBoundary:DegenerateBoundary', ...
     'metrics:internal:normalizeBoundary:DegenerateEdge', ...
@@ -347,35 +380,4 @@ identifiers = { ...
     'fov:boundaryFromRanges:InvalidRanges', ...
     'fov:boundaryFromRanges:InvalidOpeningAngle'};
 result = any(strcmp(exception.identifier, identifiers));
-end
-
-function value = validateInput(value, name)
-if ~(isnumeric(value) && isreal(value) && numel(value) == 3 && ...
-        all(isfinite(value(:))))
-    error('control:makeSignedDistanceCbfPolicy:InvalidInput', ...
-        '%s must contain three finite real numeric values.', name);
-end
-value = reshape(double(value), 3, 1);
-end
-
-function value = validateVector(value, name)
-if ~(isnumeric(value) && isreal(value) && numel(value) == 3 && ...
-        all(isfinite(value(:))))
-    error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
-        '%s must contain three finite real numeric values.', name);
-end
-value = reshape(double(value), 3, 1);
-end
-
-function result = isFiniteScalar(value)
-result = isnumeric(value) && isreal(value) && isscalar(value) && isfinite(value);
-end
-
-function iterations = outputIterations(output)
-iterations = NaN;
-if isstruct(output) && isfield(output, 'iterations') && ...
-        isnumeric(output.iterations) && isscalar(output.iterations) && ...
-        isfinite(output.iterations)
-    iterations = output.iterations;
-end
 end

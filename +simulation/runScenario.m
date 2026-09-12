@@ -5,6 +5,8 @@ function result = runScenario(scenario)
 %   poses, scans, and beliefs for K zero-order-held input intervals.
 
 scenario = simulation.validateScenario(scenario);
+
+% Set the synchronized sample grid and preallocate one log entry per sample.
 startTime = double(scenario.Time.Start);
 stopTime = double(scenario.Time.Stop);
 step = double(scenario.Time.Step);
@@ -28,7 +30,10 @@ estimatorConfig = struct( ...
     'MaxRange', scenario.Observer.Fov.MaxRange, ...
     'OpeningAngle', scenario.Observer.Fov.OpeningAngle);
 estimatorState = scenario.Estimator.Initialize(estimatorConfig);
+% Own scan randomness locally so simulation never mutates MATLAB's global RNG.
 randomStream = RandStream('mt19937ar', 'Seed', sensorSeed(scenario.Sensor));
+
+% The initial posterior exists before the first policy decision.
 [scans{1}, rawCasts{1}] = sensing.raycastScan(observerPose(1, :), ...
     scenario.Observer.Fov, scenario.Obstacles, scenario.Sensor, time(1), randomStream);
 [estimatorState, beliefs{1}] = scenario.Estimator.Correct( ...
@@ -37,6 +42,7 @@ validateBelief(beliefs{1}, scans{1}, observerPose(1, :));
 
 policyState = struct();
 for index = 1:intervalCount
+    % Policy uses the current posterior and both agents' pre-step snapshot.
     observation = struct( ...
         'Time', time(index), ...
         'Belief', beliefs{index}, ...
@@ -54,6 +60,7 @@ for index = 1:intervalCount
     observerInput(index, :) = reshape(double(appliedObserverInput), 1, 3);
     followerInput(index, :) = followerReference;
 
+    % Both agents advance from the same held-input snapshot.
     previousObserverPose = observerPose(index, :);
     observerPose(index + 1, :) = simulation.stepPose( ...
         previousObserverPose, observerInput(index, :), step);
@@ -63,6 +70,7 @@ for index = 1:intervalCount
         'PreviousObserverPose', previousObserverPose, ...
         'CurrentObserverPose', observerPose(index + 1, :), ...
         'AppliedInput', observerInput(index, :));
+    % Transport completed observer motion before correcting with the next scan.
     estimatorState = scenario.Estimator.Predict(estimatorState, motion, step);
     [scans{index + 1}, rawCasts{index + 1}] = sensing.raycastScan( ...
         observerPose(index + 1, :), scenario.Observer.Fov, ...

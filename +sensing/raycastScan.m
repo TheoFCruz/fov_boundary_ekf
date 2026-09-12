@@ -26,6 +26,8 @@ if numel(varargin) > 1
     error('sensing:raycastScan:InvalidArguments', ...
         'raycastScan accepts at most one random-stream argument.');
 end
+
+% Range noise belongs to this measurement adapter, never the oracle ray cast.
 rangeNoiseStd = getRangeNoiseStd(sensorConfig);
 randomStream = [];
 if ~isempty(varargin)
@@ -39,6 +41,7 @@ elseif rangeNoiseStd > 0
         'Positive RangeNoiseStd requires a caller-provided RandStream.');
 end
 
+% Rebuild the observer snapshot so sensing depends only on the supplied pose.
 pose = reshape(double(pose), 1, 3);
 observer = fov.Observer('Position', pose(1:2), 'Heading', pose(3), ...
     'Fov', fovSpec);
@@ -46,8 +49,10 @@ castOptions = {'NumRays', sensorConfig.NumRays};
 if isfield(sensorConfig, 'Tolerance')
     castOptions = [castOptions, {'Tolerance', sensorConfig.Tolerance}];
 end
+% The raw cast remains oracle data for simulation and replay only.
 rawCast = fov.castRays(observer, obstacles, castOptions{:});
 
+% Expose the measurement contract without copying obstacle geometry.
 scan = struct();
 scan.Time = double(time);
 scan.ObserverPose = pose;
@@ -55,6 +60,7 @@ scan.Angles = rawCast.RayAngles - pose(3);
 scan.Ranges = rawCast.Distances;
 scan.HasReturn = rawCast.IsOccluded;
 if rangeNoiseStd > 0
+    % Capped no-return rays remain censored range-cap observations.
     returnCount = sum(scan.HasReturn);
     noisyReturns = scan.Ranges(scan.HasReturn) + ...
         rangeNoiseStd * randn(randomStream, returnCount, 1);
@@ -66,6 +72,8 @@ scan.OpeningAngle = rawCast.OpeningAngle;
 end
 
 function rangeNoiseStd = getRangeNoiseStd(sensorConfig)
+%GETRANGENOISESTD Read the optional measurement-noise setting.
+
 rangeNoiseStd = 0;
 if isfield(sensorConfig, 'RangeNoiseStd')
     rangeNoiseStd = sensorConfig.RangeNoiseStd;

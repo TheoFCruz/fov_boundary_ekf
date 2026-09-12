@@ -19,26 +19,29 @@ addParameter(parser, 'ShowHitPoints', true);
 parse(parser, varargin{:});
 options = parser.Results;
 
-validateResult(result);
+% Validate all inputs before creating a figure or output directory.
 frameIndices = selectFrameIndices(options.FrameIndices, numel(result.Time));
 outputRoot = validateOutputRoot(options.OutputRoot);
-if ~(isPositiveInteger(options.Resolution) && isLogicalScalar(options.ShowRays) && ...
-        isLogicalScalar(options.ShowHitPoints))
+if ~(isnumeric(options.Resolution) && isreal(options.Resolution) && ...
+        isscalar(options.Resolution) && isfinite(options.Resolution) && ...
+        options.Resolution > 0 && options.Resolution == floor(options.Resolution))
     error('viz:saveSimulationFrames:InvalidOption', ...
-        ['Resolution must be a positive integer; ShowRays and ShowHitPoints ', ...
-         'must be logical scalars.']);
+        'Resolution must be a positive integer.');
 end
 if isempty(which('exportgraphics'))
     error('viz:saveSimulationFrames:MissingExportGraphics', ...
         'Static frame export requires exportgraphics (MATLAB R2020a or newer).');
 end
+% Reuse replay rendering while disabling playback and keeping state immutable.
 handles = viz.animateSimulation(result, 'Visible', false, 'AutoPlay', false, ...
     'ShowRays', options.ShowRays, 'ShowHitPoints', options.ShowHitPoints);
 figureCleanup = onCleanup(@() closeIfValid(handles.Figure));
 outputDirectory = createOutputDirectory(outputRoot, result.Config.Name);
 exportCompleted = false;
+% Remove the output directory unless every requested frame exports successfully.
 exportCleanup = onCleanup(@removeIncompleteExport);
 filePaths = cell(numel(frameIndices), 1);
+% Render and export only explicitly selected logged samples.
 for index = 1:numel(frameIndices)
     frameIndex = frameIndices(index);
     handles.UpdateFrame(frameIndex);
@@ -67,6 +70,8 @@ clear exportCleanup figureCleanup;
 end
 
 function frameIndices = selectFrameIndices(requestedIndices, sampleCount)
+%SELECTFRAMEINDICES Default to a compact, evenly spaced first-to-final selection.
+
 if isempty(requestedIndices)
     frameCount = min(5, sampleCount);
     frameIndices = unique(round(linspace(1, sampleCount, frameCount))).';
@@ -91,6 +96,8 @@ outputRoot = char(value);
 end
 
 function outputDirectory = createOutputDirectory(outputRoot, scenarioName)
+%CREATEOUTPUTDIRECTORY Isolate each export transaction below a safe scenario name.
+
 scenarioDirectory = fullfile(outputRoot, sanitizeScenarioName(scenarioName));
 if ~exist(scenarioDirectory, 'dir')
     [created, message] = mkdir(scenarioDirectory);
@@ -125,25 +132,6 @@ if isempty(name)
     error('viz:saveSimulationFrames:InvalidScenarioName', ...
         'result.Config.Name must contain at least one letter or digit.');
 end
-end
-
-function validateResult(result)
-if ~isstruct(result) || ~all(isfield(result, {'Config', 'Time'})) || ...
-        ~isstruct(result.Config) || ~isfield(result.Config, 'Name') || ...
-        ~(isnumeric(result.Time) && isreal(result.Time) && isvector(result.Time) && ...
-        ~isempty(result.Time) && all(isfinite(result.Time(:))))
-    error('viz:saveSimulationFrames:InvalidResult', ...
-        'result must be returned by simulation.runScenario.');
-end
-end
-
-function result = isPositiveInteger(value)
-result = isnumeric(value) && isreal(value) && isscalar(value) && ...
-    isfinite(value) && value > 0 && value == floor(value);
-end
-
-function result = isLogicalScalar(value)
-result = islogical(value) && isscalar(value);
 end
 
 function closeIfValid(figureHandle)

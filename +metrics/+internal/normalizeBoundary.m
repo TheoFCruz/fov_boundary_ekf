@@ -21,6 +21,7 @@ if size(vertices, 1) < 3
         'boundary must contain at least three vertices.');
 end
 
+% Keep one copy of each vertex while retaining the implicit closing edge.
 if norm(vertices(1, :) - vertices(end, :)) <= tolerance
     vertices(end, :) = [];
 end
@@ -43,6 +44,7 @@ if size(vertices, 1) < 3 || size(unique(vertices, 'rows'), 1) < 3
         'boundary must contain at least three unique vertices.');
 end
 
+% Reject collapsed edges before signed area and intersection diagnostics.
 boundary = [vertices; vertices(1, :)];
 edgeStarts = boundary(1:end-1, :);
 edgeEnds = boundary(2:end, :);
@@ -53,6 +55,7 @@ if any(edgeLengths <= tolerance)
         'boundary contains an edge shorter than tolerance.');
 end
 
+% A nonzero signed area distinguishes a polygon from a degenerate chain.
 signedAreaTwice = sum(edgeStarts(:, 1) .* edgeEnds(:, 2) - ...
     edgeStarts(:, 2) .* edgeEnds(:, 1));
 coordinateScale = max(1, max(abs(boundary(:))));
@@ -71,6 +74,7 @@ function intersects = hasSelfIntersection(edgeStarts, edgeEnds, tolerance)
 numEdges = size(edgeStarts, 1);
 intersects = false;
 
+% Nonadjacent edge crossings make the constructed boundary invalid.
 for firstIndex = 1:numEdges - 1
     for secondIndex = firstIndex + 1:numEdges
         if secondIndex == firstIndex + 1 || ...

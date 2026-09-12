@@ -53,10 +53,12 @@ if ~(ischar(options.Units) || (isstring(options.Units) && isscalar(options.Units
         'Units must be a character vector or string scalar.');
 end
 
+% Meshgrid orientation keeps field rows aligned with y and columns with x.
 x = linspace(bounds(1), bounds(2), gridSize(2));
 y = linspace(bounds(3), bounds(4), gridSize(1));
 [X, Y] = meshgrid(x, y);
 queryPoints = [X(:), Y(:)];
+% Evaluate in one batch so the metric owns point ordering, not the caller.
 values = evaluator(queryPoints);
 
 if ~(isnumeric(values) && isreal(values) && isvector(values) && ...
@@ -66,6 +68,7 @@ if ~(isnumeric(values) && isreal(values) && isvector(values) && ...
          'query point.']);
 end
 
+% Preserve plotting metadata with the sampled numeric grid.
 field = struct();
 field.Name = options.Name;
 field.Units = options.Units;

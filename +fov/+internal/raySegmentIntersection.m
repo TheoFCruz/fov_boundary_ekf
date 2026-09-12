@@ -29,6 +29,7 @@ if ~(isnumeric(tolerance) && isscalar(tolerance) && isreal(tolerance) && ...
         'tolerance must be a finite positive scalar.');
 end
 
+% Normalize the ray direction so returned parameters are Euclidean distances.
 rayOrigin = validatePoint(rayOrigin, 'rayOrigin');
 rayDirection = validatePoint(rayDirection, 'rayDirection');
 
@@ -63,6 +64,7 @@ if directionNorm == 0
 end
 unitDirection = rayDirection / directionNorm;
 
+% Initialize misses before treating nonparallel and collinear cases separately.
 numSegments = size(segmentStarts, 1);
 distance = inf(numSegments, 1);
 points = nan(numSegments, 2);
@@ -82,6 +84,7 @@ crossDirectionSegments = unitDirection(1) .* segmentVectors(:, 2) - ...
 parallelScale = max(1, segmentLengths);
 isParallel = abs(crossDirectionSegments) <= tolerance .* parallelScale;
 
+% Ordinary crossings solve the two line parameters directly.
 nonParallel = ~isParallel;
 if any(nonParallel)
     starts = relativeStarts(nonParallel, :);
@@ -99,10 +102,10 @@ if any(nonParallel)
     hitIndices = nonParallelIndices(valid);
 
     distance(hitIndices) = max(rayDistances(valid), 0);
-    segmentParameter(hitIndices) = min(max(parameters(valid), 0), 1);
     isHit(hitIndices) = true;
 end
 
+% Parallel segments need a separate collinearity and overlap calculation.
 parallelIndices = find(isParallel);
 if ~isempty(parallelIndices)
     parallelStarts = relativeStarts(parallelIndices, :);
@@ -152,6 +155,7 @@ if ~isempty(parallelIndices)
     end
 end
 
+% Reconstruct final points before assigning one common segment parameter rule.
 hitIndices = find(isHit);
 if isempty(hitIndices)
     return;
@@ -179,6 +183,8 @@ segmentParameter(hitIndices) = min(max(hitParameters, 0), 1);
 end
 
 function point = validatePoint(point, inputName)
+%VALIDATEPOINT Keep the internal geometry primitive well-defined.
+
 if ~(isnumeric(point) && isreal(point) && numel(point) == 2 && ...
         all(isfinite(point(:))))
     error('fov:internal:raySegmentIntersection:InvalidPoint', ...

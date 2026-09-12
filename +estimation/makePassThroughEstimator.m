@@ -6,13 +6,15 @@ function estimator = makePassThroughEstimator()
 % guarantee.
 
 estimator = struct();
-estimator.Method = "pass-through";
+% Keep the estimator seam visible: initialize, predict, then correct.
 estimator.Initialize = @initialize;
 estimator.Predict = @predict;
 estimator.Correct = @correct;
 end
 
 function state = initialize(~)
+%INITIALIZE Start with no posterior before the first scan correction.
+
 state = struct('CurrentBelief', []);
 end
 
@@ -21,6 +23,8 @@ function state = predict(state, ~, ~)
 end
 
 function [state, belief] = correct(state, scan)
+%CORRECT Copy the current measurement into the checkpoint-one posterior.
+
 required = {'Time', 'ObserverPose', 'Angles', 'Ranges', 'HasReturn', ...
     'IsValid', 'MaxRange', 'OpeningAngle'};
 if ~isstruct(scan) || ~all(isfield(scan, required))
@@ -37,6 +41,7 @@ if ~(iscolumn(scan.Angles) && iscolumn(scan.Ranges) && ...
         'scan vectors must be finite, ordered column vectors of equal length.');
 end
 
+% The zero covariance is plumbing, not a confidence claim.
 belief = struct();
 belief.Time = scan.Time;
 belief.Angles = scan.Angles;

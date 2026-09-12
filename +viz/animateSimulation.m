@@ -41,6 +41,7 @@ handles.UpdateFrame = @(index) updateGraphics(handles, result, index, options);
 if ~options.AutoPlay
     return;
 end
+% Decimate only rendered samples and always retain the final logged frame.
 frameIndices = selectFrames(result.Time, result.Config.Time.Step, ...
     options.FrameRate, options.Speed);
 
@@ -67,6 +68,7 @@ end
 end
 
 function handles = createGraphics(figureHandle, worldAxes, boundaryAxes, result, options)
+% Create persistent world artists once; replay updates only their data.
 hold(worldAxes, 'on');
 for index = 1:numel(result.Config.Obstacles)
     vertices = result.Config.Obstacles(index).Vertices;
@@ -115,6 +117,7 @@ xlabel(worldAxes, 'x (m)');
 ylabel(worldAxes, 'y (m)');
 legend(worldAxes, 'show', 'Location', 'best');
 
+% The range panel shows oracle, measurement, and posterior data separately.
 hold(boundaryAxes, 'on');
 handles.OracleRange = plot(boundaryAxes, nan, nan, '-', ...
     'Color', [0.05, 0.25, 0.55], 'DisplayName', 'Oracle range');
@@ -136,22 +139,22 @@ handles.BoundaryAxes = boundaryAxes;
 end
 
 function updateGraphics(handles, result, index, options)
+%UPDATEGRAPHICS Redraw one immutable logged sample without changing simulation state.
+
 if ~isgraphics(handles.Figure)
     return;
 end
-validateattributes(index, {'numeric'}, {'scalar', 'real', 'finite', ...
-    'integer', '>=', 1, '<=', numel(result.Time)});
+% Keep oracle casts, measurements, and beliefs visibly separate in replay.
 raw = result.RawCasts{index};
 belief = result.Beliefs{index};
 scan = result.Scans{index};
-estimatedBoundary = fov.boundaryFromRanges(belief.ObserverPose, ...
-    belief.Angles, belief.Mean, belief.OpeningAngle);
 measurementBoundary = fov.boundaryFromRanges(scan.ObserverPose, ...
     scan.Angles, scan.Ranges, scan.OpeningAngle);
 observerPose = result.ObserverPose(index, :);
 followerPose = result.FollowerPose(index, :);
 base = result.Config.Base.Position;
 
+% Update the world panel from this logged sample.
 set(handles.ObserverTrajectory, 'XData', result.ObserverPose(1:index, 1), ...
     'YData', result.ObserverPose(1:index, 2));
 set(handles.FollowerTrajectory, 'XData', result.FollowerPose(1:index, 1), ...
@@ -162,15 +165,17 @@ set(handles.RawBoundary, 'XData', raw.VisibleBoundary(:, 1), ...
     'YData', raw.VisibleBoundary(:, 2));
 set(handles.MeasurementBoundary, 'XData', measurementBoundary(:, 1), ...
     'YData', measurementBoundary(:, 2));
-set(handles.EstimatedBoundary, 'XData', estimatedBoundary(:, 1), ...
-    'YData', estimatedBoundary(:, 2));
-% Do not connect unsupported wedges; segmented rendering is later work.
 if all(belief.IsSupported)
-    set(handles.EstimatedBoundary, 'Visible', 'on');
+    estimatedBoundary = fov.boundaryFromRanges(belief.ObserverPose, ...
+        belief.Angles, belief.Mean, belief.OpeningAngle);
+    set(handles.EstimatedBoundary, 'XData', estimatedBoundary(:, 1), ...
+        'YData', estimatedBoundary(:, 2), 'Visible', 'on');
 else
-    set(handles.EstimatedBoundary, 'Visible', 'off');
+    % Hide unsupported bins rather than imply a closed visible region.
+    set(handles.EstimatedBoundary, 'XData', nan, 'YData', nan, 'Visible', 'off');
 end
 if options.ShowRays
+    % NaN-separated segments update all ray artists in one call.
     rayX = [repmat(raw.Origin(1), numel(raw.Distances), 1), raw.EndPoints(:, 1), ...
         nan(numel(raw.Distances), 1)].';
     rayY = [repmat(raw.Origin(2), numel(raw.Distances), 1), raw.EndPoints(:, 2), ...
@@ -189,6 +194,7 @@ set(handles.FollowerHeading, 'XData', followerPose(1), 'YData', followerPose(2),
     'UData', cos(followerPose(3)), 'VData', sin(followerPose(3)));
 title(handles.WorldAxes, sprintf('World replay, t = %.2f s', result.Time(index)));
 
+% Update the range panel after the world geometry is complete.
 std = full(sqrt(diag(belief.Covariance)));
 set(handles.OracleRange, 'XData', scan.Angles, 'YData', raw.Distances);
 set(handles.ScanLine, 'XData', scan.Angles, 'YData', scan.Ranges);
@@ -206,6 +212,8 @@ title(handles.BoundaryAxes, sprintf('Boundary estimate, t = %.2f s', result.Time
 end
 
 function indices = selectFrames(time, step, frameRate, speed)
+%SELECTFRAMES Choose replay samples from playback settings, not simulation timing.
+
 stride = max(1, round(double(speed) / (double(frameRate) * double(step))));
 indices = (1:stride:numel(time)).';
 if indices(end) ~= numel(time)

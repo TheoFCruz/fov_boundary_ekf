@@ -26,10 +26,12 @@ if ~(isnumeric(openingAngle) && isscalar(openingAngle) && isreal(openingAngle) &
         'openingAngle must be in the interval (0, 2*pi].');
 end
 
+% Convert relative ray angles into world endpoints at the current observer pose.
 observerPose = reshape(double(observerPose), 1, 3);
 worldAngles = observerPose(3) + double(angles);
 endPoints = bsxfun(@plus, observerPose(1:2), bsxfun(@times, ...
     double(ranges), [cos(worldAngles), sin(worldAngles)]));
+% A partial FOV closes through the observer; a full FOV closes around its rim.
 if double(openingAngle) == 2*pi
     boundary = [endPoints; endPoints(1, :)];
 else

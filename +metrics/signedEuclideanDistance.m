@@ -46,9 +46,11 @@ else
     tolerance = double(tolerance);
 end
 
+% Reject invalid constructed boundaries rather than inventing visibility.
 [boundary, edgeStarts, edgeEnds] = ...
     metrics.internal.normalizeBoundary(boundary, tolerance);
 
+% The unsigned metric is the closest distance to a sampled boundary edge.
 if nargout > 1
     [unsignedDistance, closestPoint, closestEdgeIndex] = ...
         metrics.internal.pointToSegments(queryPoints, edgeStarts, edgeEnds);
@@ -57,6 +59,7 @@ else
         queryPoints, edgeStarts, edgeEnds);
 end
 
+% Apply the project convention: negative inside, positive outside, zero on-edge.
 [inside, onBoundary] = inpolygon(queryPoints(:, 1), queryPoints(:, 2), ...
     boundary(:, 1), boundary(:, 2));
 isOnBoundary = onBoundary | unsignedDistance <= tolerance;

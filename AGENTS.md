@@ -133,6 +133,52 @@ controller.
 - Do not add a required toolbox or dependency without explicit justification
   and corresponding documentation/tests.
 
+## Readability and simplification style
+
+- Target readable, uncluttered academic/research MATLAB code, not a
+  professional multi-consumer package. Prefer the smallest visible
+  straight-line implementation with plain structs, functions, and callbacks.
+  Introduce helpers only for a meaningful stage or invariant, substantial
+  duplication, or focused testing. Do not create generic validation
+  frameworks, registries, wrapper layers, or one-use micro-functions.
+- Validate once at outer experiment/public trust boundaries, especially
+  `simulation.runScenario`, scenario factories/config construction, controller
+  construction, and filesystem export. Trusted internal helpers normally
+  assume valid shapes and types and should rely on natural MATLAB errors rather
+  than repeat defensive checks.
+- Remove duplicated internal geometry/math validation after confirming callers.
+  Bespoke error identifiers are secondary to readability unless they express a
+  research invariant. Interfaces may deliberately simplify or migrate when
+  all usages, README examples, and tests migrate together.
+- Preserve the core semantic guardrails: SI units/radians/body-frame inputs;
+  synchronized zero-order-held Euler stepping and the causal
+  scan-policy-step-predict-correct order; the belief-only estimator/policy
+  boundary; support/no-return distinction; no interpolation across depth
+  discontinuities; deterministic local RNG; invalid constructed geometry is
+  not fabricated; the headless runner and offline replay; and direct
+  `quadprog` behavior and fallbacks. Everything else may favor clarity over
+  defensive compatibility.
+- Prefer early returns and readable causal flows. Do not split
+  `simulation.runScenario`'s causal loop or hide research contracts behind
+  abstractions. Keep support-gated geometry, invalid-geometry diagnostics,
+  replay cleanup, and direct QP failure handling explicit.
+- Add concise function headers and one-line, purpose-first comments before
+  non-obvious helpers and stages. In multi-stage reusable package functions,
+  comment each major logical stage whose purpose is not apparent from the code
+  structure. Explain frames, equations, why, or teaching configuration; do not
+  narrate obvious assignments, loops, plotting calls, or validation predicates.
+  Keep blank lines between major stages.
+- Keep scripts thin; reusable plotting belongs in `+viz` and reusable
+  computation in the owning package. Before deleting checks, fields,
+  parameters, placeholders, or files, check repository/external consumers and
+  relevant docs. Reduce malformed-input tests in proportion to removed checks;
+  emphasize numerical behavior, causal ordering, geometry, controller
+  behavior, deterministic runs, and representative scenarios.
+- Optimize only established hotspots with behavior-preserving changes such as
+  precomputing loop invariants. Do not trade clear tie, tolerance, or causal
+  semantics for clever vectorization. Keep numerical behavior changes separate
+  from readability cleanup.
+
 ## Development workflow
 
 Inspect relevant implementation, tests, and docs first. Make the smallest
