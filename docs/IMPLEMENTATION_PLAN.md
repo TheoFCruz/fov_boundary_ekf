@@ -60,15 +60,16 @@ The current checkout contains the following foundation:
   unreported.
 
 The Milestone-A implementation is present, but checkpoint acceptance remains
-open. Focused tests were added for sensor validation, deterministic same-seed
-scans, preservation of the global RNG, preservation of oracle and no-return
-data, explicit clipping, replay without resampling, oracle/measurement/belief
-source separation, labels and styles, and fixed artist count. Those tests have
-not been run. No current focused-test, full-suite, or formal desktop graphics
-pass should be inferred from the existence of the code. The user's comment
-“That looks great” is recorded as positive manual visual observation/approval
-of the Milestone-A result only; it is not a formal desktop graphics or
-final-frame verification.
+open. The focused `tests/TestSimulation.m` suite was rerun on 2026-09-15 after
+the latest frame-export assertion fix and passed all 22 tests. It covers sensor
+validation, deterministic same-seed scans, preservation of the global RNG,
+preservation of oracle and no-return data, explicit clipping, replay without
+resampling, oracle/measurement/belief source separation, labels and styles,
+and fixed artist count. The focused controller suite, full MATLAB suite, and
+formal desktop graphics checks remain unrun. The user's comment “That looks
+great” is recorded as positive manual visual observation/approval of the
+Milestone-A result only; it is not a formal desktop graphics or final-frame
+verification.
 
 ### Foundation acceptance checklist
 
@@ -805,11 +806,10 @@ runner. The follower pose is intentionally known to the policy in this
 checkpoint. There is no pursuit, collision response, continuous visibility
 guarantee, or base-link guarantee.
 
-**Acceptance record:** the current code additions and replay optimization are
-documented above, but the focused checkpoint tests have no reported passing
-rerun after the fixes/additions. Automated MATLAB verification and the required
-desktop graphics replay remain open. The reported faster replay is a manual
-performance observation only.
+**Acceptance record:** `tests/TestSimulation.m` passed 22/22 on 2026-09-15
+after the latest frame-export assertion fix. The focused controller suite, full
+MATLAB suite, and required desktop graphics replay remain open. The reported
+faster replay is a manual performance observation only.
 
 ## 8. Historical static signed-distance, contour, and UI phases
 

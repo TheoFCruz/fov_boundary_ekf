@@ -188,8 +188,10 @@ static key-frame export, not video export. It requires base-MATLAB
 `viz.animateSimulation(result, 'AutoPlay', false)` returns replay handles
 without automatically replaying the log.
 
-The export feature has not had a final MATLAB or desktop rerun after this
-feature; no successful verification is claimed here.
+`tests/TestSimulation.m` passed 22/22 on 2026-09-15 after the latest
+frame-export assertion fix. The focused controller suite, full MATLAB suite,
+and desktop replay/export checks remain unrun; no broader successful
+verification is claimed here.
 
 `scenario.Sensor.RangeNoiseStd` defaults to zero. A positive value adds
 zero-mean Gaussian noise to first-return ranges only; values outside

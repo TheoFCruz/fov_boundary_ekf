@@ -338,7 +338,7 @@ classdef TestSimulation < matlab.unittest.TestCase
             verifyError(testCase, @() viz.saveSimulationFrames(result, ...
                 'OutputRoot', invalidRoot, 'Resolution', 0), ...
                 'viz:saveSimulationFrames:InvalidOption');
-            verifyFalse(testCase, exist(invalidRoot, 'dir'));
+            verifyFalse(testCase, exist(invalidRoot, 'dir') == 7);
         end
 
         function animationDistinguishesOracleMeasurementAndBelief(testCase)
