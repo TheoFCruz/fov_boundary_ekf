@@ -1,4 +1,4 @@
-# FOV Metrics Implementation Plan
+# Motion-Aware FOV Boundary Estimation Plan
 
 This is the execution plan for the MATLAB first-boundary field-of-view (FoV)
 testbed. The active target is the observer-frame first-occlusion-boundary range
@@ -8,11 +8,11 @@ redesign research program. A narrowly scoped belief-derived controller
 baseline is explicitly authorized in Milestone B only to exercise this
 interface.
 
-The repository already contains the checkpoint-one plumbing and the historical
-static signed-distance workflow. Milestone A's implementation is now present:
-noisy measurements and the distinction between oracle, measurement, and belief
-are visible before adding filtering. Milestone-A and Milestone-B verification
-remain pending. Each checklist item is marked
+The repository contains the checkpoint-one plumbing and retains sampled-polygon
+signed distance as a computational primitive. Milestone A's implementation is
+now present: noisy measurements and the distinction between oracle, measurement,
+and belief are visible before adding filtering. Milestone-A and Milestone-B
+verification remain pending. Each checklist item is marked
 `[x]` only when the described implementation exists **and** the relevant
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
@@ -20,18 +20,18 @@ unchecked with an honest note.
 ## 1. Active direction and current status
 
 The active workflow is the headless moving-pair simulation, followed by replay.
-It supersedes further development of the interactive heading explorer. The
-static signed-distance, field, contour, and UI phases remain supported as
-historical/legacy material in Section 8. Milestone A is implementation-complete
-but awaiting its focused and desktop verification; Milestone B is also
-implementation-complete but awaiting focused and desktop verification. Its
-approved design is a belief-derived continuous-time CBF-QP baseline evaluated
-at controller samples, using the current noisy pass-through belief before the
-EKF. The known current follower reference velocity, initial baseline
-configuration, and invalid-case behavior are selected for implementation and
-verification; they must not be inferred from wall-clock time or hidden oracle
-data. The runner sample interval remains documented for zero-order-hold
-interpretation, but is not an explicit term in the continuous CBF inequality.
+Static Cartesian field sampling, contour rendering, static scenario plotting,
+and the interactive heading explorer are retired; Section 8 preserves their
+historical record only. Milestone A is implementation-complete but awaiting its
+focused and desktop verification; Milestone B is also implementation-complete
+but awaiting focused and desktop verification. Its approved design is a
+belief-derived continuous-time CBF-QP baseline evaluated at controller samples,
+using the current noisy pass-through belief before the EKF. The known current
+follower reference velocity, initial baseline configuration, and invalid-case
+behavior are selected for implementation and verification; they must not be
+inferred from wall-clock time or hidden oracle data. The runner sample interval
+remains documented for zero-order-hold interpretation, but is not an explicit
+term in the continuous CBF inequality.
 
 ### Current checkpoint-one state
 
@@ -133,9 +133,9 @@ Keep responsibilities in the existing packages:
 | `+estimation` | `Initialize`/`Predict`/`Correct` estimators and current boundary belief |
 | `+simulation` | Scenario validation, schedules, kinematics, causal runner, and logs |
 | `+control` | Observer-policy callbacks and the policy seam |
-| `+metrics` | Computational metric contracts and spatial fields |
-| `+viz` | Summary, replay, and static rendering |
-| `+scenarios` | Reusable static and dynamic scenario factories |
+| `+metrics` | Sampled-polygon signed-distance computation |
+| `+viz` | Summary, replay, diagnostics, and static frame export |
+| `+scenarios` | Reusable dynamic scenario factories |
 | `scripts` | Thin experiment/demo entry points |
 | `tests` | MATLAB unit and graphics-smoke tests |
 
@@ -811,10 +811,11 @@ after the latest frame-export assertion fix. The focused controller suite, full
 MATLAB suite, and required desktop graphics replay remain open. The reported
 faster replay is a manual performance observation only.
 
-## 8. Historical static signed-distance, contour, and UI phases
+## 8. Retired static field, contour, and UI phases
 
-These phases document completed or intentionally retained legacy work. They do
-not override the active probabilistic-FoV sequence in Section 4.
+These phases document work that was completed and then retired during the
+pre-EKF cleanup. They do not override the active probabilistic-FoV sequence in
+Section 4 and do not describe supported APIs.
 
 ### Historical benchmark contract
 
@@ -829,8 +830,7 @@ The original benchmark computes shortest Euclidean distance to
 - exact only relative to the finite sampled polygon, not ideal continuous
   visibility.
 
-Ray-count geometry approximation and XY field/contour interpolation remain
-separate approximations. For partial FoV, the boundary order is
+For partial FoV, the boundary order is
 `observer -> first endpoint -> ... -> last endpoint -> observer`; for full FoV,
 it is `first endpoint -> ... -> last endpoint -> first endpoint`.
 
@@ -842,25 +842,17 @@ rays remain legal ray-casting output but are rejected as degenerate by the
 metric. The scalar distance is continuous and 1-Lipschitz, although closest
 features can change at corners, medial axes, and occlusion transitions.
 
-### Historical phases 1–6: static implementation
+### Historical phases 1–6: static implementation and retirement
 
 - [x] Formalize the visible-region boundary contract, ordering, sign
   convention, duplicate handling, and invalid-geometry behavior.
 - [x] Implement `metrics.signedEuclideanDistance` with direct boundary input,
   point-to-segment distance, polygon sign classification, optional diagnostics,
   and scale-aware tolerance behavior.
-- [x] Implement generic `metrics.sampleField` with explicit bounds, grid size,
-  mesh orientation, values, zero level, units, and sign metadata. Keep field
-  sampling independent of visibility ray count.
-- [x] Implement `viz.plotMetricContours` with regular contours, a distinct zero
-  contour, supplied-parent support, held-state preservation, and graphics
-  handles.
-- [x] Complete the historical static metric tests: exact polygons,
-  normalization, concavity, FOV integration, the Lipschitz property, field
-  sampling, contour handles, and the static demo.
-- [x] Complete the historical demonstration as
-  `scripts/runSingleScenario.m` (rather than the originally proposed
-  `runDistanceContours.m`) and document the equivalent README workflow.
+- [x] Implement and later retire generic Cartesian field sampling and contour
+  rendering. They are not part of the current boundary-estimation workflow.
+- [x] Complete the historical static metric tests and demonstration, then remove
+  their field, contour, static-plot, and UI coverage with the retired APIs.
 
 The prior historical record reports a full MATLAB suite pass on 2026-08-17 for
 that static phase. That old result is not a passing rerun of the current
@@ -868,8 +860,8 @@ checkpoint after later fixes/additions.
 
 ### Historical Phase 7: interactive heading explorer
 
-`viz.interactiveScenario` and `scripts/runInteractiveScenario.m` remain
-available for static exploration and are legacy/deprecated for new work.
+`viz.interactiveScenario` and `scripts/runInteractiveScenario.m` were removed
+with the static field and contour workflow.
 
 - [x] Provide a programmatic `uifigure`/`uiaxes` explorer with heading slider,
   degree/radian conversion, fixed observer/FoV/scenario settings, returned
@@ -884,30 +876,28 @@ available for static exploration and are legacy/deprecated for new work.
   fixed limits, and repeated updates.
 - [ ] Manually verify desktop slider responsiveness and record limitations.
 
-Do not extend this UI as the primary simulation workflow. No App Designer
+Do not restore this UI as the primary simulation workflow. No App Designer
 application, observer dragging, obstacle editing, or continuous contour update
 is planned.
 
 ### Historical phases 8–9: not active
 
-- [ ] Separate ray-count convergence studies from grid-resolution convergence
-  studies.
+- [ ] Separate ray-count convergence studies from unrelated spatial-grid studies
+  only if a future task explicitly restores a field-analysis workflow.
 - [ ] Add critical-angle sampling only if a later static-geometry task
   explicitly reactivates it; retain `fov.castRays` uniform-sampling behavior.
-- [ ] Add additional metric contracts only through the existing function-handle
-  field interface and only after an explicitly approved scope change.
+- [ ] Add additional metric contracts only after an explicitly approved scope
+  change.
 
 These items are retained for history and are not prerequisites for the active
 noise, controller-baseline, or EKF sequence.
 
-## 9. Historical static API notes
+## 9. Retired static API notes
 
-The original static workflow remains usable with `fov.FovSpec`,
-`fov.Observer`, `fov.polygonObstacle`, `fov.castRays`,
-`metrics.signedEuclideanDistance`, `metrics.sampleField`, and
-`viz.plotMetricContours`. Static signed-distance is shortest distance to the
-sampled polygon boundary, with negative-inside sign; ray count and field-grid
-resolution must not be conflated in studies.
+The retired static workflow used `metrics.sampleField`,
+`viz.plotMetricContours`, `viz.plotScenario`, and the interactive heading
+explorer. Those APIs and their static scenario factories are no longer present.
+`metrics.signedEuclideanDistance` remains supported for sampled-polygon
+diagnostics and the controller baseline, with the negative-inside convention.
 
-The moving-pair workflow is the recommended new entry point. Interactive
-heading controls are retained only for legacy static signed-distance analysis.
+The moving-pair workflow is the supported entry point.

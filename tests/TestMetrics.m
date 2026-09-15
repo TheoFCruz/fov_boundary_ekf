@@ -1,5 +1,5 @@
 classdef TestMetrics < matlab.unittest.TestCase
-    %TESTMETRICS Tests for signed-distance metrics and metric fields.
+    %TESTMETRICS Tests for the sampled-polygon signed-distance metric.
 
     methods (Test)
         function calculatesSignedDistancesForSquare(testCase)
@@ -72,9 +72,9 @@ classdef TestMetrics < matlab.unittest.TestCase
         end
 
         function integratesWithVisibleFovBoundaries(testCase)
-            partialScenario = scenarios.emptyField();
-            partialResult = fov.castRays( ...
-                partialScenario.Observer, partialScenario.Obstacles, ...
+            partialObserver = fov.Observer([0, 0], 0, 10, pi/2);
+            emptyObstacles = struct('Name', {}, 'Vertices', {});
+            partialResult = fov.castRays(partialObserver, emptyObstacles, ...
                 'NumRays', 31);
             partialDistance = metrics.signedEuclideanDistance( ...
                 partialResult.VisibleBoundary, partialResult.VisibleBoundary);
@@ -82,7 +82,7 @@ classdef TestMetrics < matlab.unittest.TestCase
             verifyEqual(testCase, partialDistance, zeros(size(partialDistance)), ...
                 'AbsTol', 1e-12);
             verifyEqual(testCase, metrics.signedEuclideanDistance( ...
-                partialResult.VisibleBoundary, partialScenario.Observer.Position), 0, ...
+                partialResult.VisibleBoundary, partialObserver.Position), 0, ...
                 'AbsTol', 1e-12);
             verifyGreaterThan(testCase, metrics.signedEuclideanDistance( ...
                 partialResult.VisibleBoundary, [-1, 0]), 0);
@@ -92,10 +92,9 @@ classdef TestMetrics < matlab.unittest.TestCase
             verifyLessThan(testCase, metrics.signedEuclideanDistance( ...
                 fullResult.VisibleBoundary, [0, 0]), 0);
 
-            wallScenario = scenarios.singleWall();
-            wallResult = fov.castRays( ...
-                wallScenario.Observer, wallScenario.Obstacles, ...
-                'NumRays', wallScenario.NumRays);
+            wall = fov.polygonObstacle('wall', ...
+                [4, -2; 4, 2; 4.3, 2; 4.3, -2]);
+            wallResult = fov.castRays(partialObserver, wall, 'NumRays', 181);
             verifyGreaterThan(testCase, metrics.signedEuclideanDistance( ...
                 wallResult.VisibleBoundary, [6, 0]), 0);
         end
@@ -114,123 +113,9 @@ classdef TestMetrics < matlab.unittest.TestCase
             end
         end
 
-        function samplesMetricFieldWithExpectedGrid(testCase)
-            evaluator = @(points) points(:, 1) + 2 * points(:, 2);
-            field = metrics.sampleField(evaluator, ...
-                'Bounds', [0, 2, -1, 1], ...
-                'GridSize', [3, 5], ...
-                'Name', 'Linear field', ...
-                'Units', 'u');
-
-            verifySize(testCase, field.X, [3, 5]);
-            verifyEqual(testCase, field.Bounds, [0, 2, -1, 1]);
-            verifyEqual(testCase, field.X(1, :), [0, 0.5, 1, 1.5, 2]);
-            verifyEqual(testCase, field.Y(:, 1), [-1; 0; 1]);
-            verifyEqual(testCase, field.Values, ...
-                [-2, -1.5, -1, -0.5, 0; ...
-                  0, 0.5,  1,  1.5, 2; ...
-                  2, 2.5,  3,  3.5, 4]);
-            verifyEqual(testCase, field.SignConvention, 'negative-inside');
-
-            rowEvaluator = @(points) (points(:, 1) + 2 * points(:, 2)).';
-            rowField = metrics.sampleField(rowEvaluator, ...
-                'Bounds', [0, 2, -1, 1], 'GridSize', [3, 5]);
-            verifyEqual(testCase, rowField.Values, field.Values);
-        end
-
-        function rejectsInvalidFieldInputsAndEvaluatorOutput(testCase)
-            evaluator = @(points) points(:, 1);
-            verifyError(testCase, @() metrics.sampleField(evaluator, ...
-                'Bounds', [0, 0, -1, 1]), ...
-                'metrics:sampleField:InvalidBounds');
-            verifyError(testCase, @() metrics.sampleField(evaluator, ...
-                'Bounds', [0, 1, -1, 1], 'GridSize', [1, 4]), ...
-                'metrics:sampleField:InvalidGridSize');
-            verifyError(testCase, @() metrics.sampleField(@(points) 1, ...
-                'Bounds', [0, 1, 0, 1]), ...
-                'metrics:sampleField:InvalidEvaluatorOutput');
-        end
-
-        function plotsContourGraphicsHandles(testCase)
-            figureHandle = figure('Visible', 'off');
-            cleanup = onCleanup(@() close(figureHandle));
-            axesHandle = axes('Parent', figureHandle);
-            field = metrics.sampleField(@(points) points(:, 1), ...
-                'Bounds', [-1, 1, -1, 1], 'GridSize', [11, 11]);
-
-            handles = viz.plotMetricContours(field, ...
-                'Parent', axesHandle, 'Levels', [-0.5, 0.5]);
-
-            verifyTrue(testCase, isgraphics(handles.Contours));
-            verifyTrue(testCase, isgraphics(handles.ZeroContour));
-            verifyTrue(testCase, isgraphics(handles.Colorbar));
-            verifyEqual(testCase, handles.Axes, axesHandle);
-            clear cleanup
-        end
-
-        function runsSingleScenarioContourDemo(testCase)
-            originalVisibility = get(groot, 'DefaultFigureVisible');
-            beforeFigures = findall(groot, 'Type', 'figure');
-            set(groot, 'DefaultFigureVisible', 'off');
-            cleanup = onCleanup(@() restoreFigures(originalVisibility, beforeFigures));
-
-            projectRoot = fileparts(fileparts(mfilename('fullpath')));
-            run(fullfile(projectRoot, 'scripts', 'runSingleScenario.m'));
-
-            figures = findall(groot, 'Type', 'figure');
-            verifyNotEmpty(testCase, figures);
-            clear cleanup
-        end
-
-        function updatesInteractiveHeadingExplorer(testCase)
-            scenario = scenarios.singleWall();
-            ui = viz.interactiveScenario(scenario, ...
-                'GridSize', [31, 31], ...
-                'ContourLevels', -2:1:2, ...
-                'Visible', false);
-            cleanup = onCleanup(@() close(ui.Figure));
-
-            verifyTrue(testCase, isgraphics(ui.Figure));
-            verifyTrue(testCase, isgraphics(ui.Axes));
-            verifyTrue(testCase, isgraphics(ui.HeadingSlider));
-            verifyTrue(testCase, isgraphics(ui.HeadingLabel));
-            verifyTrue(testCase, isgraphics(ui.StatusLabel));
-            verifyEqual(testCase, ui.Bounds, [-10.5, 10.5, -10.5, 10.5]);
-            verifyNotEmpty(testCase, findall(ui.Figure, 'Type', 'ColorBar'));
-            verifyNotEmpty(testCase, findall(ui.Axes, 'Type', 'Contour'));
-
-            ui.HeadingSlider.ValueChangingFcn( ...
-                ui.HeadingSlider, struct('Value', 30));
-            verifyEmpty(testCase, findall(ui.Figure, 'Type', 'ColorBar'));
-            verifyEmpty(testCase, findall(ui.Axes, 'Type', 'Contour'));
-            verifyEqual(testCase, xlim(ui.Axes), ui.Bounds(1:2), 'AbsTol', 1e-12);
-            verifyEqual(testCase, ylim(ui.Axes), ui.Bounds(3:4), 'AbsTol', 1e-12);
-
-            ui.HeadingSlider.ValueChangedFcn( ...
-                ui.HeadingSlider, struct('Value', 30));
-            verifyEqual(testCase, numel(findall(ui.Figure, 'Type', 'ColorBar')), 1);
-            verifyNotEmpty(testCase, findall(ui.Axes, 'Type', 'Contour'));
-            verifyEqual(testCase, xlim(ui.Axes), ui.Bounds(1:2), 'AbsTol', 1e-12);
-            verifyEqual(testCase, ylim(ui.Axes), ui.Bounds(3:4), 'AbsTol', 1e-12);
-            verifyEqual(testCase, ui.StatusLabel.Text, 'Ready');
-
-            ui.HeadingSlider.ValueChangedFcn( ...
-                ui.HeadingSlider, struct('Value', -45));
-            verifyEqual(testCase, numel(findall(ui.Figure, 'Type', 'ColorBar')), 1);
-            legendHandle = legend(ui.Axes);
-            verifyFalse(testCase, any(startsWith(string(legendHandle.String), 'data')));
-            verifyEqual(testCase, legendHandle.Location, 'northeast');
-            clear cleanup
-        end
     end
 end
 
 function boundary = squareBoundary()
 boundary = [-1, -1; 1, -1; 1, 1; -1, 1; -1, -1];
-end
-
-function restoreFigures(originalVisibility, beforeFigures)
-set(groot, 'DefaultFigureVisible', originalVisibility);
-figures = findall(groot, 'Type', 'figure');
-delete(figures(~ismember(figures, beforeFigures)));
 end

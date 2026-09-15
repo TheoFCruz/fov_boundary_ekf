@@ -8,14 +8,16 @@ the observer-frame first-boundary range profile `B_t(theta)`, not observer
 pose, follower/target pose, occupancy, or a persistent world map.
 
 Checkpoint 1 is a deterministic foundation: a moving observer/follower, static
-convex polygon obstacles, noiseless ray-cast scans, a pass-through estimator, a
-replaceable policy, a headless deterministic runner, and offline replay.
+convex polygon obstacles, ray-cast scans with optional deterministic range
+noise, a pass-through estimator, a replaceable policy, a headless deterministic
+runner, and offline replay.
 Static selective replay frame export is permitted under `+viz` as a replay-only
 artifact workflow; it must remain efficient and must not affect simulation
 state or logs. Generated `frames/` output is ignored by Git.
-Static signed-distance and contour functionality remains supported, but is
-secondary/legacy for new development. Do not extend `viz.interactiveScenario`
-or `scripts/runInteractiveScenario.m` as the primary workflow.
+Sampled-polygon signed distance remains a supported computational primitive for
+diagnostics and the controller baseline. Static Cartesian field sampling,
+contour plotting, static scenario plotting, and the interactive heading
+explorer are retired and must not be restored as primary workflows.
 
 ## Sources of truth and documentation
 
@@ -24,8 +26,8 @@ Read the relevant sources before changing implementation, tests, or docs:
 - `README.md` — current supported usage and limitations.
 - `docs/probabilistic_fov_project_roadmap(4).pdf` — research objective and
   stage order.
-- `docs/fov_metrics_checkpoint_1_codex_plan.md` — detailed checkpoint-one
-  contracts.
+- `docs/archive/checkpoint_1_implementation_brief.md` — superseded historical
+  checkpoint-one implementation context.
 - `docs/IMPLEMENTATION_PLAN.md` — progress and history. Retain its historical
   static phases, but keep active-direction and status notes aligned with code.
 
@@ -33,8 +35,9 @@ No one document replaces the others. If a change affects a contract,
 architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
-verification honestly. The current checkpoint tests have not had a reported
-passing rerun after fixes/additions, so do not imply that they have passed.
+verification honestly. `tests/TestSimulation.m` passed 22/22 on 2026-09-15;
+the focused controller suite, full MATLAB suite, and desktop checks remain
+unrun.
 
 ## Repository and package ownership
 
@@ -45,9 +48,9 @@ passing rerun after fixes/additions, so do not imply that they have passed.
 +estimation/   Replaceable boundary-estimator lifecycle
 +simulation/   Scenario validation, schedules, kinematics, causal runner/logs
 +control/      Observer-policy callbacks/seam
-+metrics/      Computational metric contracts and spatial fields
-+viz/          Summary, replay, and static rendering
-+scenarios/    Reusable static and dynamic scenario factories
++metrics/      Sampled-polygon distance computation
++viz/          Summary, replay, diagnostics, and static frame export
++scenarios/    Reusable dynamic scenario factories
 scripts/       Thin experiment/demo entry points
 tests/         MATLAB unit tests
 ```
@@ -97,8 +100,7 @@ entry points include `simulation.runScenario`, `sensing.raycastScan`,
   fabricate a closed visible polygon from unsupported geometry.
 - Raw casts are oracle data for simulation, evaluation, and rendering only.
 - Preserve the signed-distance convention: negative inside, positive outside,
-  and zero on the boundary, exact only for the sampled polygon. Keep ray-count
-  geometry approximation separate from XY grid/contour interpolation.
+  and zero on the boundary, exact only for the sampled polygon.
 - Preserve invalid-geometry behavior: unsupported, degenerate, or
   self-intersecting constructed boundaries produce invalid diagnostics/`NaN`
   distance rather than fabricated visibility. Unexpected errors should

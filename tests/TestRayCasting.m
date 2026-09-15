@@ -67,12 +67,12 @@ classdef TestRayCasting < matlab.unittest.TestCase
         end
 
         function reachesMaximumRangeInEmptyField(testCase)
-            scenario = scenarios.emptyField();
-            result = fov.castRays( ...
-                scenario.Observer, scenario.Obstacles, 'NumRays', 11);
+            observer = fov.Observer([0, 0], 0, 10, pi/2);
+            emptyObstacles = struct('Name', {}, 'Vertices', {});
+            result = fov.castRays(observer, emptyObstacles, 'NumRays', 11);
 
             verifyEqual(testCase, result.Distances, ...
-                repmat(scenario.Observer.MaxRange, 11, 1));
+                repmat(observer.MaxRange, 11, 1));
             verifyFalse(testCase, any(result.IsOccluded));
             verifyEqual(testCase, result.HitObstacleId, zeros(11, 1));
         end
@@ -86,9 +86,10 @@ classdef TestRayCasting < matlab.unittest.TestCase
         end
 
         function stopsCentralRayAtSingleWall(testCase)
-            scenario = scenarios.singleWall();
-            result = fov.castRays( ...
-                scenario.Observer, scenario.Obstacles, 'NumRays', 181);
+            observer = fov.Observer([0, 0], 0, 10, pi/2);
+            wall = fov.polygonObstacle('wall', ...
+                [4, -2; 4, 2; 4.3, 2; 4.3, -2]);
+            result = fov.castRays(observer, wall, 'NumRays', 181);
             centralRay = 91;
 
             verifyEqual(testCase, result.Distances(centralRay), 4, ...
@@ -116,18 +117,19 @@ classdef TestRayCasting < matlab.unittest.TestCase
         end
 
         function storesClosedVisibilityBoundaries(testCase)
-            scenario = scenarios.singleWall();
-            result = fov.castRays( ...
-                scenario.Observer, scenario.Obstacles, 'NumRays', 11);
+            observer = fov.Observer([0, 0], 0, 10, pi/2);
+            wall = fov.polygonObstacle('wall', ...
+                [4, -2; 4, 2; 4.3, 2; 4.3, -2]);
+            result = fov.castRays(observer, wall, 'NumRays', 11);
 
             verifyEqual(testCase, result.VisibleBoundary(1, :), ...
-                scenario.Observer.Position);
+                observer.Position);
             verifyEqual(testCase, result.VisibleBoundary(end, :), ...
-                scenario.Observer.Position);
+                observer.Position);
             verifyEqual(testCase, result.NominalBoundary(1, :), ...
-                scenario.Observer.Position);
+                observer.Position);
             verifyEqual(testCase, result.NominalBoundary(end, :), ...
-                scenario.Observer.Position);
+                observer.Position);
         end
     end
 end
