@@ -28,6 +28,7 @@ if ~(isnumeric(chunkSize) && isscalar(chunkSize) && isreal(chunkSize) && ...
         'ChunkSize must be a positive integer scalar.');
 end
 
+% Process point blocks to avoid a large point-by-edge temporary array.
 queryPoints = double(queryPoints);
 edgeStarts = double(edgeStarts);
 edgeEnds = double(edgeEnds);
@@ -48,6 +49,7 @@ if nargout > 1
     closestEdgeIndex = zeros(numPoints, 1);
 end
 
+% Each block projects every query point onto every polygon edge.
 for startIndex = 1:chunkSize:numPoints
     endIndex = min(startIndex + chunkSize - 1, numPoints);
     pointIndices = startIndex:endIndex;

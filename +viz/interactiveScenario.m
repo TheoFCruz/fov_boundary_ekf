@@ -24,6 +24,7 @@ validateContourLevels(options.ContourLevels);
 validatePadding(options.Padding);
 validateLogicalOption(options.Visible, 'Visible');
 
+% Precompute invariant sampling and display settings outside slider callbacks.
 observer = scenario.Observer;
 numRays = double(scenario.NumRays);
 gridSize = reshape(double(options.GridSize), 1, 2);
@@ -63,6 +64,7 @@ statusLabel = uilabel(layout, ...
     'HorizontalAlignment', 'left');
 statusLabel.Layout.Row = 3;
 
+% Cache the latest cast because preview and full rendering share it.
 cachedHeading = NaN;
 cachedScenario = struct();
 cachedResult = struct();
@@ -84,6 +86,7 @@ ui.Preview = @renderPreview;
 ui.Update = @renderFull;
 
     function renderPreview(headingDegrees)
+        % Fast preview updates visibility only while the slider is moving.
         if isRendering || ~isvalid(figureHandle)
             return;
         end
@@ -107,6 +110,7 @@ ui.Update = @renderFull;
     end
 
     function renderFull(headingDegrees)
+        % Full updates add the expensive signed-distance field after release.
         if ~isvalid(figureHandle)
             return;
         end
@@ -150,6 +154,7 @@ ui.Update = @renderFull;
     end
 
     function [updatedScenario, result] = scenarioAtHeading(headingDegrees)
+        % Reuse the cast when preview and full rendering request one heading.
         if isequal(headingDegrees, cachedHeading)
             updatedScenario = cachedScenario;
             result = cachedResult;
@@ -170,6 +175,7 @@ ui.Update = @renderFull;
     end
 
     function clearAxes()
+        % Remove old contours, colorbars, and artists before redrawing a frame.
         colorbars = findall(figureHandle, 'Type', 'ColorBar');
         delete(colorbars);
         legend(axesHandle, 'off');
@@ -193,6 +199,7 @@ ui.Update = @renderFull;
     end
 
     function finishRendering()
+        % Serialize callbacks and apply the newest deferred full update.
         isRendering = false;
         if isvalid(statusLabel) && ~strcmp(statusLabel.Text, 'Ready')
             if startsWith(statusLabel.Text, 'Computing')

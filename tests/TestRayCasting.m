@@ -77,6 +77,14 @@ classdef TestRayCasting < matlab.unittest.TestCase
             verifyEqual(testCase, result.HitObstacleId, zeros(11, 1));
         end
 
+        function rejectsDegenerateDirectObstacle(testCase)
+            observer = fov.Observer([0, 0], 0, 10, pi/2);
+            obstacle = struct('Vertices', [2, 0; 2, 1]);
+
+            verifyError(testCase, @() fov.castRays(observer, obstacle), ...
+                'fov:castRays:InvalidObstacles');
+        end
+
         function stopsCentralRayAtSingleWall(testCase)
             scenario = scenarios.singleWall();
             result = fov.castRays( ...

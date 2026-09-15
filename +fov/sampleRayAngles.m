@@ -30,10 +30,12 @@ if ~(isnumeric(numRays) && isscalar(numRays) && isreal(numRays) && ...
         'NumRays must be an integer scalar greater than or equal to 2.');
 end
 
+% Start at the clockwise aperture edge and progress counterclockwise.
 numRays = double(numRays);
 startAngle = observer.Heading - observer.OpeningAngle/2;
 
 if observer.OpeningAngle == 2*pi
+    % Omit the duplicated full-circle endpoint.
     rayAngles = linspace(startAngle, startAngle + 2*pi, numRays + 1).';
     rayAngles(end) = [];
 else

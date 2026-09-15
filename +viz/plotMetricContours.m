@@ -32,6 +32,7 @@ else
     figureHandle = ancestor(axesHandle, 'figure');
 end
 
+% Derive contour and color limits from the sampled metric, not hard-coded scale.
 values = field.Values;
 zeroLevel = field.ZeroLevel;
 minimumValue = min(values(:));
@@ -41,6 +42,7 @@ if isempty(levels)
     levels = unique(linspace(minimumValue, maximumValue, 11));
 end
 
+% Exclude zero from regular levels so it can remain a visually distinct contour.
 levelTolerance = 32 * eps(max(1, max(abs([levels(:); zeroLevel]))));
 regularLevels = levels(abs(levels - zeroLevel) > levelTolerance);
 
@@ -54,6 +56,7 @@ handles.Contours = gobjects(0);
 handles.ZeroContour = gobjects(0);
 handles.Colorbar = gobjects(0);
 
+% A constant field has no drawable contour topology.
 hasVariation = minimumValue < maximumValue;
 if hasVariation && ~isempty(regularLevels)
     [~, handles.Contours] = contour(axesHandle, field.X, field.Y, values, ...
@@ -68,6 +71,7 @@ if hasVariation && options.ShowZeroContour && minimumValue <= zeroLevel && ...
     set(handles.ZeroContour, 'HandleVisibility', 'off');
 end
 
+% Center the signed color scale at the field's declared zero level.
 colormap(axesHandle, signedDistanceColormap());
 limit = max(abs([minimumValue - zeroLevel, maximumValue - zeroLevel]));
 if limit > 0
@@ -141,6 +145,8 @@ end
 end
 
 function colors = signedDistanceColormap()
+%SIGNEDDISTANCECOLORMAP Use pale zero and contrasting negative/positive sides.
+
 steps = 128;
 negative = [linspace(0.10, 1.00, steps).', ...
     linspace(0.25, 1.00, steps).', ...

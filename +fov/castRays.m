@@ -50,6 +50,14 @@ if ~isempty(obstacles) && ...
     error('fov:castRays:InvalidObstacles', ...
         'obstacles must be a struct array created by fov.polygonObstacle.');
 end
+for obstacleIndex = 1:numel(obstacles)
+    vertices = obstacles(obstacleIndex).Vertices;
+    if ~(isnumeric(vertices) && isreal(vertices) && size(vertices, 2) == 2 && ...
+            size(vertices, 1) >= 3 && all(isfinite(vertices(:))))
+        error('fov:castRays:InvalidObstacles', ...
+            'Obstacle vertices must be finite N-by-2 polygons with N >= 3.');
+    end
+end
 
 numRays = double(numRays);
 tolerance = double(tolerance);
@@ -57,16 +65,25 @@ rayAngles = fov.sampleRayAngles(observer, numRays);
 directions = [cos(rayAngles), sin(rayAngles)];
 numObstacles = numel(obstacles);
 
+% Obstacles are static during one scan, so build their edge lists once.
+edgeLists = cell(numObstacles, 1);
+for obstacleIndex = 1:numObstacles
+    [edgeLists{obstacleIndex, 1}, edgeLists{obstacleIndex, 2}] = ...
+        fov.internal.polygonEdges(obstacles(obstacleIndex));
+end
+
+% Start every ray at the censored range cap and replace it with nearer hits.
 distances = repmat(observer.MaxRange, numRays, 1);
 hitObstacleId = zeros(numRays, 1);
 
+% Keep the ray-major loop explicit so nearest-hit ties remain easy to inspect.
 for rayIndex = 1:numRays
     rayOrigin = observer.Position;
     rayDirection = directions(rayIndex, :);
 
     for obstacleIndex = 1:numObstacles
-        [edgeStarts, edgeEnds] = ...
-            fov.internal.polygonEdges(obstacles(obstacleIndex));
+        edgeStarts = edgeLists{obstacleIndex, 1};
+        edgeEnds = edgeLists{obstacleIndex, 2};
         edgeDistances = fov.internal.raySegmentIntersection( ...
             rayOrigin, rayDirection, edgeStarts, edgeEnds, tolerance);
 
@@ -84,6 +101,7 @@ for rayIndex = 1:numRays
     end
 end
 
+% Convert nearest ranges back into world endpoints and sampled boundaries.
 endPoints = bsxfun(@plus, observer.Position, ...
     bsxfun(@times, distances, directions));
 isOccluded = hitObstacleId > 0;

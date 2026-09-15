@@ -47,10 +47,12 @@ else
     figureHandle = ancestor(axesHandle, 'figure');
 end
 
+% Preserve callers' axes state while layering scenario artifacts in draw order.
 wasHolding = ishold(axesHandle);
 hold(axesHandle, 'on');
 
 if options.ShowNominalFov
+    % The nominal aperture is the uncensored range-cap reference.
     patch(axesHandle, ...
         result.NominalBoundary(:, 1), result.NominalBoundary(:, 2), ...
         [0.75, 0.75, 0.75], ...
@@ -60,6 +62,7 @@ if options.ShowNominalFov
         'DisplayName', 'Nominal FOV');
 end
 
+% The sampled visible boundary is distinct from the nominal aperture.
 patch(axesHandle, ...
     result.VisibleBoundary(:, 1), result.VisibleBoundary(:, 2), ...
     [0.20, 0.55, 0.90], ...
@@ -68,6 +71,7 @@ patch(axesHandle, ...
     'DisplayName', 'Visible FOV');
 
 if ~isempty(options.MetricField)
+    % Contours remain an optional overlay on the same world axes.
     contourOptions = {'Parent', axesHandle};
     if ~isempty(options.MetricContourLevels)
         contourOptions = [contourOptions, ...
@@ -77,6 +81,7 @@ if ~isempty(options.MetricField)
 end
 
 if options.ShowRays
+    % NaN-separated columns draw all rays in one graphics call.
     origin = result.Origin;
     rayX = [repmat(origin(1), size(result.EndPoints, 1), 1), ...
         result.EndPoints(:, 1), nan(size(result.EndPoints, 1), 1)].';
@@ -88,6 +93,7 @@ if options.ShowRays
         'HandleVisibility', 'off');
 end
 
+% Draw opaque static obstacles over FOV fills and metric contours.
 for obstacleIndex = 1:numel(scenario.Obstacles)
     vertices = scenario.Obstacles(obstacleIndex).Vertices;
     closedVertices = [vertices; vertices(1, :)];
@@ -112,6 +118,7 @@ if options.ShowHitPoints
     end
 end
 
+% Finish with the observer pose and heading as the visual foreground.
 origin = result.Origin;
 plot(axesHandle, origin(1), origin(2), 'ko', ...
     'MarkerFaceColor', 'k', ...
