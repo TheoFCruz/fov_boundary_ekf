@@ -1,8 +1,19 @@
+# Superseded checkpoint-one implementation brief
+
+> **Historical context only.** This brief predates the boundary-estimation
+> cleanup and is not an active implementation contract. The current supported
+> workflow and limitations are in [`README.md`](../../README.md) and
+> [`docs/IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md). The retained
+> sampled-polygon signed-distance primitive is still used by active simulation
+> diagnostics and the CBF baseline; static field sampling, contour plotting,
+> static scenario plotting, and the interactive heading explorer are retired.
+
 # Codex implementation brief: fov_metrics checkpoint 1
 
 ## 1. Task and scope
 
-Refactor and extend the MATLAB repository [TheoFCruz/fov_metrics](https://github.com/TheoFCruz/fov_metrics) into a scripted, reproducible 2D simulation testbed. Implement **only checkpoint 1**:
+Refactor and extend this MATLAB repository into a scripted, reproducible 2D
+simulation testbed. Implement **only checkpoint 1**:
 
 - Observer and follower motion over a configured time interval.
 - Ray casting from the moving observer against static polygonal obstacles.
