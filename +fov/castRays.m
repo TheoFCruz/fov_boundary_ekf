@@ -111,11 +111,22 @@ nominalEndPoints = bsxfun(@plus, observer.Position, ...
 
 if observer.OpeningAngle == 2*pi
     nominalBoundary = [nominalEndPoints; nominalEndPoints(1, :)];
-    visibleBoundary = [endPoints; endPoints(1, :)];
 else
     nominalBoundary = [observer.Position; nominalEndPoints; observer.Position];
-    visibleBoundary = [observer.Position; endPoints; observer.Position];
 end
+
+% A depth jump is a change of hit identity between consecutive rays: a
+% different obstacle, or an obstacle next to a no-return. Convex obstacles
+% never self-occlude, so identity alone distinguishes a true depth jump.
+nextHit = [hitObstacleId(2:end); hitObstacleId(1)];
+isDepthJump = hitObstacleId ~= nextHit;
+if observer.OpeningAngle ~= 2*pi
+    isDepthJump = isDepthJump(1:end-1);
+end
+
+% VisibleBoundary steps radially at depth jumps instead of bridging them.
+visibleBoundary = fov.boundaryFromRanges([observer.Position, observer.Heading], ...
+    rayAngles - observer.Heading, distances, observer.OpeningAngle, isDepthJump);
 
 result = struct();
 result.Origin = observer.Position;
@@ -125,6 +136,7 @@ result.Distances = distances;
 result.EndPoints = endPoints;
 result.IsOccluded = isOccluded;
 result.HitObstacleId = hitObstacleId;
+result.IsDepthJump = isDepthJump;
 result.MaxRange = observer.MaxRange;
 result.OpeningAngle = observer.OpeningAngle;
 result.NumRays = numRays;

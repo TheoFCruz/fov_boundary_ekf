@@ -17,6 +17,32 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-10-27 status note: oracle-boundary simulation/control cleanup
+
+Implemented the audit's recommended fixes (`docs/SIMULATION_CONTROL_AUDIT.md`)
+ahead of the EKF: `fov.boundaryFromRanges`/`fov.castRays` no longer bridge
+depth jumps with a diagonal chord (a conservative radial step vertex is
+inserted instead); `fov.isPointVisible` is a new true line-of-sight oracle
+used only for `simulation.runScenario`'s `Metrics.TrueVisible` scoring field;
+`control.makeSignedDistanceCbfPolicy` now evaluates h directly in world frame
+through a replaceable `BoundarySource` (default: the frozen belief polygon,
+same as before but expressed in world frame), differentiates it by
+least-squares over beam-spacing-scaled samples instead of sub-beam finite
+differences, classifies QP status from the constraint geometry instead of
+slack magnitude, and falls back to the clipped nominal input instead of zero
+on every fallback path; `control.makeOracleBoundarySource` re-casts against
+true obstacles per queried pose for the oracle-boundary baseline used by
+`scenarios.controlTest` and the new `scenarios.boxInFrontOfWall` (plan
+scenario S2); `viz.animateSimulation` appends `h` and policy status to the
+world-panel title when available.
+
+Verified: `runtests('tests')` passed 70/70 on 2026-10-27 (headless). Not
+verified: desktop graphics replay of either scenario. Closed-loop numbers are
+reported in `docs/SIMULATION_CONTROL_AUDIT.md`'s implementation-status
+section. No invalid-geometry fallbacks remain in `scenarios.boxInFrontOfWall`;
+the target is lost for about 2.5 s where the CBF constraint is infeasible
+within the input bounds (`relaxed-with-slack`).
+
 ## 1. Active direction and current status
 
 The active workflow is the headless moving-pair simulation, followed by replay.
@@ -150,7 +176,7 @@ rule against introducing required dependencies.
 ## 3. Roadmap alignment and intentional sequence
 
 The revised semester roadmap in
-[`probabilistic_fov_project_roadmap(4).pdf`](probabilistic_fov_project_roadmap%284%29.pdf)
+[`probabilistic_fov_project_roadmap.pdf`](probabilistic_fov_project_roadmap.pdf)
 defines three research stages:
 
 1. dense ground truth with noisy sparse sensing, filtering/segmentation, and

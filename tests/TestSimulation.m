@@ -46,6 +46,23 @@ classdef TestSimulation < matlab.unittest.TestCase
             verifyEqual(testCase, result.Time(end), 0.3, 'AbsTol', 1e-12);
         end
 
+        function reportsTrueVisibleOracleMetric(testCase)
+            scenario = shortScenario();
+            result = simulation.runScenario(scenario);
+
+            verifySize(testCase, result.Metrics.TrueVisible, [numel(result.Time), 1]);
+            verifyClass(testCase, result.Metrics.TrueVisible, 'logical');
+        end
+
+        function boxInFrontOfWallRunsHeadlessAndDeterministically(testCase)
+            first = simulation.runScenario(scenarios.boxInFrontOfWall());
+            second = simulation.runScenario(scenarios.boxInFrontOfWall());
+
+            verifyEqual(testCase, first.ObserverPose, second.ObserverPose);
+            verifyEqual(testCase, first.FollowerPose, second.FollowerPose);
+            verifyEqual(testCase, first.Metrics.TrueVisible, second.Metrics.TrueVisible);
+        end
+
         function runnerSynchronizesSamplesAndInputs(testCase)
             scenario = shortScenario();
             result = simulation.runScenario(scenario);

@@ -108,3 +108,81 @@ Minor replay QoL: show h and the policy status in the world-panel title of
 - The focused and full MATLAB test suites were not run as part of this audit.
 - Gradient comparisons were spot checks at a few target positions, not a
   sweep.
+
+## Implementation status (2026-10-27)
+
+All seven recommended changes above, plus the replay QoL item, were
+implemented and headlessly verified. `runtests('tests')` passed 70/70.
+
+1. **Gradient step and method (done).** `control.makeSignedDistanceCbfPolicy`
+   now scales observer-pose and target perturbations to the sensor's own
+   `dtheta` (via `config.GradientBeamMultiples`, default `[1, 2]`) and fits
+   `dh/dpose` and `dh/dtarget` by least squares over the finite samples. The
+   2% forward/backward consistency rejection is gone.
+2. **Boundary model under perturbation (done, oracle variant).** Added
+   `config.BoundarySource` and `control.makeOracleBoundarySource`, which
+   re-casts against the true obstacles at each queried pose (Zhou et al.
+   style), used by `scenarios.controlTest` and the new
+   `scenarios.boxInFrontOfWall`. The default (no `BoundarySource`) still uses
+   the frozen belief polygon, now evaluated directly in world frame instead
+   of the observer-local frame. EKF mean transport is not implemented; it can
+   plug into the same seam later.
+3. **No polygon bridges across depth jumps (done).** `fov.boundaryFromRanges`
+   takes an optional `isJump` flag vector and inserts a single conservative
+   step vertex (nearer range, farther ray direction) instead of a diagonal
+   chord; `fov.castRays` computes `IsDepthJump` from obstacle-identity changes
+   and uses it to build `VisibleBoundary`. Belief polygons are unaffected
+   (still built without jump flags; segmentation is future work).
+4. **True-visibility scoring (done).** Added `fov.isPointVisible` (range,
+   aperture, and edge-occlusion check) and `simulation.runScenario`'s
+   `Metrics.TrueVisible`.
+5. **Slack status label (done).** Status is now classified from the
+   constraint geometry (`coefficient * clippedReference` vs. `rhs`, and
+   `maximumContribution` vs. `rhs`), not slack magnitude.
+6. **Fallback command (done).** Every fallback path (invalid geometry,
+   unusable gradient, zero control authority, QP failure) now returns the
+   reference clipped to the input bounds.
+7. **Occlusion scenario (done).** Added `scenarios.boxInFrontOfWall` (plan
+   scenario S2): a box occluder in front of a far wall, zero observer
+   reference, follower walking through the box's shadow.
+
+Replay QoL: `viz.animateSimulation`'s world-panel title appends
+`h = %.3f | <status>` from the displayed interval's `PolicyDiagnostics` when
+present (the final logged sample reuses the last interval's diagnostics).
+
+### Measured gradient checks (oracle source, `fov.FovSpec(10, deg2rad(100))`,
+81 rays, `movingPair` wall `[4,-2;4,2;4.3,2;4.3,-2]`, default `DistanceMargin`)
+
+| Case | dh/dx | dh/dy | dh/dpsi |
+|---|---|---|---|
+| Target (8, 3.9), corner shadow | -0.538 | 0.809 | n/a |
+| Continuous geometry (for reference) | about -0.45 | about +0.89 | n/a |
+| Target (5, 0.5), behind wall face | ~0.0000 (|·| < 0.2 bound; true value 0) | — | — |
+| No-obstacle target near heading, range ~10 | — | — | ~0.0000 (|·| < 0.05 bound) |
+
+All three match the continuous-geometry sign/magnitude expectations from the
+original audit far better than the old sub-beam finite difference.
+
+### Closed-loop numbers (not tuned)
+
+| Scenario | omega sign flips | fraction `TrueVisible` | status counts | min `BarrierValue` | wall-clock runtime |
+|---|---|---|---|---|---|
+| `scenarios.controlTest` (empty obstacles, oracle source) | 0 / 200 | 1.0000 | nominal-feasible 88, cbf-corrected 112 | -0.0001 | 23.0 s |
+| `scenarios.boxInFrontOfWall` | 0 / 320 | 0.8380 | nominal-feasible 97, cbf-corrected 94, relaxed-with-slack 129 | -0.2923 | 50.0 s |
+
+In `scenarios.boxInFrontOfWall` the target is truly hidden for t = 7.65 to
+10.20 s (52 samples). Those steps report `relaxed-with-slack`, meaning the
+hard CBF constraint is infeasible within the input bounds; this is a
+controller-authority/tuning question, not a geometry failure. A first draft of
+the step construction produced self-intersecting polygons (out-and-back spikes
+where a far ray sat at the aperture edge or between two jumps to nearer rays);
+`fov.boundaryFromRanges` now pulls such rays in to their farther near
+neighbour, and no invalid-geometry fallbacks remain. Runtime is dominated by
+the ~13 oracle re-casts per controller step.
+
+### Not verified
+
+- Desktop graphics replay of `scenarios.movingPair()` and
+  `scenarios.boxInFrontOfWall()` (headless session only).
+- The gradient and closed-loop numbers above are spot checks and two full
+  closed-loop runs each, not a parameter sweep.

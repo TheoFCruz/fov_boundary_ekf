@@ -24,7 +24,7 @@ explorer are retired and must not be restored as primary workflows.
 Read the relevant sources before changing implementation, tests, or docs:
 
 - `README.md` — current supported usage and limitations.
-- `docs/probabilistic_fov_project_roadmap(4).pdf` — research objective and
+- `docs/probabilistic_fov_project_roadmap.pdf` — research objective and
   stage order.
 - `docs/archive/checkpoint_1_implementation_brief.md` — superseded historical
   checkpoint-one implementation context.
@@ -35,9 +35,19 @@ No one document replaces the others. If a change affects a contract,
 architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
-verification honestly. `tests/TestSimulation.m` passed 22/22 on 2026-09-15;
-the focused controller suite, full MATLAB suite, and desktop checks remain
-unrun.
+verification honestly. The full suite (`runtests('tests')`) passed 70/70 on
+2026-10-27, after the oracle-boundary CBF cleanup described below. Desktop
+graphics replay of `scenarios.movingPair()` and `scenarios.boxInFrontOfWall()`
+remains unrun (headless-only verification).
+
+An explicitly labeled oracle `BoundarySource` (`control.makeOracleBoundarySource`),
+built from a scenario's own obstacles outside `simulation.runScenario` and
+re-cast per queried pose, is permitted as the `control.makeSignedDistanceCbfPolicy`
+baseline ahead of the EKF. The runner still passes policies only the
+observation; obstacles never flow through that seam. The policy's fallback
+paths (invalid geometry, unusable gradient, zero control authority, QP
+failure) now return the reference clipped to the input bounds, not a zero
+command, so a nonzero nominal does not cause stop-go motion.
 
 ## Repository and package ownership
 
