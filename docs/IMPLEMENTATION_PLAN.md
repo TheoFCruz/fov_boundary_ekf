@@ -40,8 +40,15 @@ Verified: `runtests('tests')` passed 70/70 on 2026-10-27 (headless). Not
 verified: desktop graphics replay of either scenario. Closed-loop numbers are
 reported in `docs/SIMULATION_CONTROL_AUDIT.md`'s implementation-status
 section. No invalid-geometry fallbacks remain in `scenarios.boxInFrontOfWall`;
-the target is lost for about 2.5 s where the CBF constraint is infeasible
-within the input bounds (`relaxed-with-slack`).
+in its original 10 m layout the target was lost for about 2.5 s where the CBF
+constraint was infeasible within the input bounds (`relaxed-with-slack`).
+
+2026-10-28: `scenarios.boxInFrontOfWall` was rescaled to a compact layout
+(0.2 m box, wall at x = 1.8 m, 2 m FoV, same 81 rays, follower at 0.1 m/s for
+12 s). Headless run: target truly visible on all samples, min `BarrierValue`
+-0.033, no slack needed (169 cbf-corrected, 71 nominal-feasible). Inputs are
+still not smooth: 53 of 239 steps change an input component by more than 0.2,
+so the remaining roughness is not explained by ray spacing alone.
 
 ## 1. Active direction and current status
 

@@ -180,6 +180,10 @@ where a far ray sat at the aperture edge or between two jumps to nearer rays);
 neighbour, and no invalid-geometry fallbacks remain. Runtime is dominated by
 the ~13 oracle re-casts per controller step.
 
+These numbers are for the original 10 m layout. On 2026-10-28
+`scenarios.boxInFrontOfWall` was rescaled to a compact 2 m-FoV layout; see
+`docs/IMPLEMENTATION_PLAN.md` for its numbers.
+
 ### Not verified
 
 - Desktop graphics replay of `scenarios.movingPair()` and
