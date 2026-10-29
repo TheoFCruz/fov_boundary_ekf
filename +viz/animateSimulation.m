@@ -192,7 +192,18 @@ set(handles.ObserverHeading, 'XData', observerPose(1), 'YData', observerPose(2),
     'UData', cos(observerPose(3)), 'VData', sin(observerPose(3)));
 set(handles.FollowerHeading, 'XData', followerPose(1), 'YData', followerPose(2), ...
     'UData', cos(followerPose(3)), 'VData', sin(followerPose(3)));
-title(handles.WorldAxes, sprintf('World replay, t = %.2f s', result.Time(index)));
+titleText = sprintf('World replay, t = %.2f s', result.Time(index));
+% The final logged sample has no interval diagnostics; reuse the last one.
+diagnosticsIndex = min(index, numel(result.PolicyDiagnostics));
+if diagnosticsIndex >= 1
+    policyDiagnostics = result.PolicyDiagnostics{diagnosticsIndex};
+    if isstruct(policyDiagnostics) && all(isfield(policyDiagnostics, ...
+            {'BarrierValue', 'Status'}))
+        titleText = [titleText, sprintf(' | h = %.3f | %s', ...
+            policyDiagnostics.BarrierValue, policyDiagnostics.Status)];
+    end
+end
+title(handles.WorldAxes, titleText);
 
 % Update the range panel after the world geometry is complete.
 std = full(sqrt(diag(belief.Covariance)));

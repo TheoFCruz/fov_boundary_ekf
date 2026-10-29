@@ -24,10 +24,22 @@ viz.plotSimulationSummary(result);
 viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);
 ```
 
-For the belief-derived CBF-QP experiment, use `scenarios.controlTest()` or
-configure `control.makeSignedDistanceCbfPolicy()` on a moving-pair scenario.
-It requires MATLAB Optimization Toolbox (`quadprog`) and is an experimental
-sampled-polygon baseline, not a safety guarantee or controller redesign.
+For the CBF-QP experiment, use `scenarios.controlTest()` or
+`scenarios.boxInFrontOfWall()` (a compact occlusion scenario: a 0.2 m box in
+front of a wall, 2 m FoV, follower at 0.1 m/s), `scenarios.clutteredField()`
+(small posts scattered around a slow follower's path, loosely after the
+VisCoNetwork cluttered environment), or configure
+`control.makeSignedDistanceCbfPolicy()` on a moving-pair scenario. It
+requires MATLAB Optimization Toolbox (`quadprog`) and is an experimental sampled-polygon baseline, not a safety guarantee or controller
+redesign. By default the barrier is built from the current frozen belief
+polygon (now evaluated directly in world frame). Passing
+`config.BoundarySource = control.makeOracleBoundarySource(obstacles, fovSpec,
+numRays)` switches to an oracle re-cast boundary, built from the scenario's
+own obstacles outside the runner (the runner still only ever passes policies
+the observation) — the baseline both built-in control scenarios now use ahead
+of the boundary EKF. Every fallback path (invalid geometry, unusable
+gradient, zero control authority, QP failure) returns the reference clipped
+to the input bounds, not a zero command.
 
 ## Structure
 
@@ -88,7 +100,9 @@ inputs, or complete logs.
 
 `simulation.runScenario` is headless and deterministic. It returns `Config`,
 `Time`, poses, inputs, `Scans`, `Beliefs`, `RawCasts`, `PolicyDiagnostics`, and
-sampled-polygon diagnostics in `Metrics`. Replay consumes completed logs only;
+sampled-polygon diagnostics in `Metrics`, including the oracle true-visibility
+scoring field `Metrics.TrueVisible` (line-of-sight against the scenario's
+actual obstacles; not a filter or controller input). Replay consumes completed logs only;
 frame rate and speed affect display samples, never simulation state. It always
 includes the final frame.
 
@@ -112,13 +126,23 @@ sampled polygon, positive outside, and zero on its boundary. Unsupported,
 degenerate, or self-intersecting constructed boundaries remain invalid rather
 than being repaired into fabricated visibility.
 
+The oracle `VisibleBoundary` from `fov.castRays` (and `fov.boundaryFromRanges`
+when given its optional depth-jump flags) no longer bridges a depth
+discontinuity with a diagonal chord into the occluded shadow; it inserts a
+single conservative step vertex at the nearer range along the farther ray's
+direction instead. Belief polygons are unaffected — they are still built
+without jump flags, since segmentation is future work. `fov.isPointVisible`
+is a true line-of-sight oracle (range, aperture, and edge occlusion) used only
+for `simulation.runScenario`'s `Metrics.TrueVisible` scoring field; it is
+evaluation/metrics data, not a filter or controller input.
+
 Static Cartesian field sampling, contour rendering, static scenario plotting,
 and the interactive heading explorer have been retired. They are not supported
 workflows for this boundary-estimation project.
 
 ## Roadmap and limitations
 
-The [semester roadmap](docs/probabilistic_fov_project_roadmap%284%29.pdf)
+The [semester roadmap](docs/probabilistic_fov_project_roadmap.pdf)
 orders the remaining work as segmentation/no-return handling, deterministic
 within-segment motion transport, EKF covariance and reset/forgetting behavior,
 then sparse-ray reconstruction and an existing-controller demonstration.
@@ -130,9 +154,13 @@ archive.
 
 ## Verification status
 
-`tests/TestSimulation.m` passed 22/22 on 2026-09-15 after the frame-export
-assertion fix. The focused controller suite, full MATLAB suite, and desktop
-replay/export checks remain unrun.
+The full suite (`runtests('tests')`) passed 70/70 on 2026-10-27, after the
+oracle-boundary simulation/control cleanup (depth-jump step construction,
+`fov.isPointVisible`, the oracle `BoundarySource` seam, least-squares
+gradients, and the clipped-nominal fallback — see
+`docs/SIMULATION_CONTROL_AUDIT.md`). Desktop graphics replay of
+`scenarios.movingPair()` and `scenarios.boxInFrontOfWall()` remains unrun;
+headless verification cannot confirm rendering.
 
 The standard full-suite command, when verification is desired, is:
 
