@@ -26,7 +26,9 @@ viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);
 
 For the CBF-QP experiment, use `scenarios.controlTest()` or
 `scenarios.boxInFrontOfWall()` (a compact occlusion scenario: a 0.2 m box in
-front of a wall, 2 m FoV, follower at 0.1 m/s), or configure
+front of a wall, 2 m FoV, follower at 0.1 m/s), `scenarios.clutteredField()`
+(small posts scattered around a slow follower's path, loosely after the
+VisCoNetwork cluttered environment), or configure
 `control.makeSignedDistanceCbfPolicy()` on a moving-pair scenario. It
 requires MATLAB Optimization Toolbox (`quadprog`) and is an experimental sampled-polygon baseline, not a safety guarantee or controller
 redesign. By default the barrier is built from the current frozen belief
