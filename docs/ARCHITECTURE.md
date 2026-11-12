@@ -39,10 +39,10 @@ scenario struct:
 |---|---|---|
 | `scenario.Observer.Policy` | `@control.referencePolicy` or a CBF-QP policy | The observer's input each step |
 | `scenario.Estimator` (`Initialize`/`Predict`/`Correct`) | `estimation.makePassThroughEstimator()` | The belief `μ, Σ` about the boundary |
-| `BoundarySource` (inside the CBF policy config) | `[]` = frozen belief | How the boundary looks from a hypothetical pose, used for the gradient |
+| `BoundaryPredictor` (inside the CBF policy config, required) | Oracle predictor (`fov.visibleBoundaryAt`) | How the boundary looks from a hypothetical pose, used for the barrier and gradient |
 
 The runner never changes between experiments. Changing the scenario, the
-estimator, or the boundary source is how you run a different experiment.
+estimator, or the boundary predictor is how you run a different experiment.
 
 ## 2. One simulation run, step by step
 
@@ -103,7 +103,7 @@ It is called from three places, for three different purposes:
 | Caller | Purpose | Who sees the result |
 |---|---|---|
 | `sensing.raycastScan` (each step, from the runner) | The simulated LiDAR: true ranges, plus noise in `scan` | The estimator sees only `scan`; the noiseless `rawCast` goes to the log and replay |
-| `control.makeOracleBoundarySource` (inside the policy, ~13 times per step) | Oracle gradient source (i): true boundary at hypothetical poses | Only the policy that was built with it |
+| `fov.visibleBoundaryAt`, wrapped as the oracle predictor (inside the policy, ~13 times per step) | Oracle boundary (i): true boundary at hypothetical poses | Only the policy that was built with it |
 | *(not `castRays`)* `fov.isPointVisible` | Exact line-of-sight test for scoring | Only `Metrics.TrueVisible` |
 
 The estimator never calls `castRays` and never receives obstacles. That is
@@ -111,21 +111,21 @@ what makes it an estimator.
 
 ## 4. Where the gradient is computed
 
-Everything is in **`+control/makeSignedDistanceCbfPolicy.m`**. The callback
-`applyPolicy` runs each step:
+The policy **`+control/makeSignedDistanceCbfPolicy.m`** runs each step as
+predict → barrier → gradient → solve. The gradient lives in
+**`control.barrierGradient`** and the QP in **`control.solveCbfQp`**; both
+are pure numerics with no FoV geometry, so they are tested on their own.
 
-1. **Choose `boundaryAt(pose)`**, a function returning the world-frame visible
-   polygon as seen from `pose`:
-   - `BoundarySource = []` (default, "belief-frozen"): the current belief
-     ranges placed rigidly at `pose`, via `fov.boundaryFromRanges(pose,
-     belief.Angles, belief.Mean, ...)`. This is a rigid-motion approximation
-     and is **not** one of the methodology's four sources.
-   - `BoundarySource = handle` ("supplied"): `handle(observation, pose)`. With
-     `control.makeOracleBoundarySource` this re-casts true geometry, which is
-     source (i).
+1. **`boundaryAt(pose) = BoundaryPredictor(belief, pose)`**, the world-frame
+   visible polygon predicted from the current belief as seen from `pose`.
+   The baseline is the oracle predictor, which ignores the belief and re-casts
+   the true obstacles at `pose` (source (i)).
 2. **Barrier now:** `h = -metrics.signedEuclideanDistance(boundaryAt(currentPose),
-   leaderPosition) - DistanceMargin` (local `evaluateBarrier`).
-3. **Gradient (local `gradientsByLeastSquares`, eq. 12):**
+   leaderPosition) - DistanceMargin` (local `barrierOrNaN`, which turns known
+   invalid-geometry failures into `NaN`).
+3. **Gradient (`control.barrierGradient`, eq. 12):** the policy hands it two
+   barrier closures, one re-predicting the boundary at a displaced pose and
+   one displacing the leader against the current boundary.
    - Steps: δψ = Δθ (beam spacing, from `belief.Angles`) and
      δx = δy = ‖y − p‖·Δθ.
    - Observer: for each axis in {x, y, ψ}, each multiple ℓ in
@@ -139,12 +139,15 @@ Everything is in **`+control/makeSignedDistanceCbfPolicy.m`**. The callback
      remain, the gradient is marked unusable.
 4. **CBF terms:** `coefficient = ∂h/∂q · G(ψ)` maps body inputs to ḣ.
    `TargetDrift = ∂h/∂y · ẏ` is ∂h/∂t from the leader's known velocity.
-5. **QP (direct `quadprog`):** minimize `(u − u_nom)ᵀW(u − u_nom) + λδ²`
-   subject to `coefficient·u + δ ≥ −γh − drift`, input bounds and `δ ≥ 0`.
+5. **QP (`control.solveCbfQp`, direct `quadprog`):** minimize
+   `(u − u_nom)ᵀW(u − u_nom) + λδ²` subject to `coefficient·u + δ ≥ −γh − drift`,
+   input bounds and `δ ≥ 0`. It also handles the zero-authority and QP-failure
+   fallbacks.
 6. **Status and fallback:** `nominal-feasible`, `cbf-corrected` or
    `relaxed-with-slack`, based on whether the constraint can be met within the
-   bounds. Any failure (invalid geometry, unusable gradient, zero authority,
-   QP failure) returns the nominal input clipped to the bounds.
+   bounds. Any failure (invalid geometry and unusable gradient in the policy;
+   zero authority and QP failure in the solver) returns the nominal input
+   clipped to the bounds.
 7. Everything is written to `diagnostics`, one per step:
    - `BarrierValue`, `SignedDistance`;
    - `ObserverPoseGradient`, `TargetPositionGradient`, `GradientSampleCount`,
@@ -152,9 +155,9 @@ Everything is in **`+control/makeSignedDistanceCbfPolicy.m`**. The callback
    - `BodyInputCoefficient`, `TargetDrift`, `NominalInput`, `AppliedInput`;
    - `Slack`, `ConstraintResidual`, `ActiveBounds`, `QpExitFlag`,
      `QpIterations`;
-   - `BoundarySource`, `Status`.
+   - `Status`.
 
-The only thing that differs between gradient sources is `boundaryAt`.
+The only thing that differs between boundary sources is the predictor.
 Everything from step 2 onward is shared.
 
 ## 5. How the modular parts plug in
@@ -166,7 +169,7 @@ Signature: `[u, state, diagnostics] = policy(observation, nominalInput, state)`.
 - `control.referencePolicy` returns `nominalInput` unchanged (no control).
 - `control.makeSignedDistanceCbfPolicy(config)` builds the CBF-QP callback.
   Its settings (margin, γ, bounds, weights, slack penalty, gradient
-  multiples, `BoundarySource`) are fixed when the callback is built.
+  multiples, `BoundaryPredictor`) are fixed when the callback is built.
 
 ### Estimator
 
@@ -180,31 +183,34 @@ The estimator owns its `state` (e.g. μ, Σ, labels). The runner only passes it
 back in. `estimation.makePassThroughEstimator` copies the scan into the belief:
 `Mean = Ranges`, zero `Covariance`, and `Predict` does nothing.
 
-### Boundary source
+### Boundary predictor
 
-Signature: `boundary = source(observation, pose)`, which returns a closed
-world-frame polygon (N-by-2).
+Signature: `boundary = predictor(belief, pose)`, which returns the closed
+world-frame polygon (N-by-2) the observer would see from `pose`.
 
 The runner never calls it. Only the CBF policy does, from its config.
 
-`control.makeOracleBoundarySource(obstacles, fov, numRays)` copies the
-obstacles when it is built. If you change `scenario.Obstacles`,
-`Observer.Fov` or `Sensor.NumRays`, rebuild the policy (see
-`+scenarios/template.m`).
+- **Oracle (baseline):** the scenario factories build
+  `@(belief, pose) fov.visibleBoundaryAt(pose, fov, obstacles, numRays)`.
+  It ignores the belief and captures the obstacles when it is built. If you
+  change `scenario.Obstacles`, `Observer.Fov` or `Sensor.NumRays`, rebuild
+  the policy (see `+scenarios/template.m`). It must never reach an estimator.
+- **Methodology transport:** `estimation.predictBoundaryByTransport` is a
+  placeholder that errors. It will transport the belief mean and covariance
+  to `pose` and return the confidence polygon `V_ε`.
 
 ### How the methodology's sources map onto the slots
 
-| Source (§1.5) | `BoundarySource` | `Estimator` | Exists? |
+| Source (§1.5) | `BoundaryPredictor` | `Estimator` | Exists? |
 |---|---|---|---|
-| (i) Oracle | `makeOracleBoundarySource` | any (unused for geometry) | Yes |
-| (ii) Latest reading | prediction model applied to `observation.Belief` | pass-through | No: needs the prediction model |
-| (iii) EKF | prediction model applied to `observation.Belief` | EKF | No |
+| (i) Oracle | `fov.visibleBoundaryAt` wrapper | any (unused for geometry) | Yes |
+| (ii) Latest reading | `estimation.predictBoundaryByTransport` | pass-through | Placeholder only |
+| (iii) EKF | `estimation.predictBoundaryByTransport` | EKF | No |
 | (iv) EKF, η = 0 | same, with η = 0 | EKF with η = 0 | No |
 
-The planned EKF puts the prediction model of §1.2 in one pure function in
-`+estimation`. The EKF's `Predict` calls it with the real motion; a new
-boundary source calls it with the hypothetical displacement and builds the
-polygon from μ̄.
+The transport inside `predictBoundaryByTransport` is the prediction model of
+§1.2. The EKF's `Predict` will use the same transport with the real motion;
+the policy calls the predictor with hypothetical displacements.
 
 ## 6. Data structures
 
@@ -244,7 +250,7 @@ polygon from μ̄.
 | File | Role |
 |---|---|
 | `startup.m` | Adds the repo root, `tests/` and `scripts/` to the MATLAB path. Run first. |
-| `scripts/runMovingPair.m` | Moving-pair scenario with a frozen-belief CBF, noise 0.1; summary and replay. |
+| `scripts/runMovingPair.m` | Moving-pair scenario with an oracle-predictor CBF, noise 0.1; summary and replay. |
 | `scripts/runBoxInFrontOfWall.m` | Box occlusion scenario (oracle CBF); summary, diagnostics, replay. |
 | `scripts/runClutteredField.m` | Cluttered-field scenario (oracle CBF); summary, diagnostics, replay. |
 | `scripts/plotControlDiagnostics.m` | Plots CBF diagnostics for a `result` already in the workspace. |
@@ -283,8 +289,9 @@ polygon from μ̄.
 | `polygonObstacle.m` | Builds and validates a convex polygon obstacle struct. |
 | `sampleRayAngles.m` | Evenly spaced world ray angles over the aperture (both edges included for a partial FoV). |
 | `castRays.m` | **The oracle ray cast** (§3). Nearest hit per ray, depth-jump flags, `VisibleBoundary`. |
-| `boundaryFromRanges.m` | Ranges plus angles at a pose → closed world polygon. With jump flags: radial steps at jumps and spike collapse. Used by `castRays` (oracle), the policy (frozen belief), metrics and replay. |
+| `boundaryFromRanges.m` | Ranges plus angles at a pose → closed world polygon. With jump flags: radial steps at jumps and spike collapse. Used by `castRays` (oracle), metrics and replay. |
 | `isPointVisible.m` | Exact line-of-sight, aperture and range test. Scoring only. |
+| `visibleBoundaryAt.m` | Oracle visible polygon from a pose (`castRays` → `VisibleBoundary`); the CBF's oracle boundary predictor. |
 | `+internal/obstacleEdges.m` | All obstacles' edges stacked as start/end arrays, with the owning obstacle index. |
 | `+internal/rayEdgeDistances.m` | Rays-by-edges distance matrix (`Inf` on a miss; ray-parallel edges count as misses). Used by `castRays` and `isPointVisible`. |
 
@@ -301,14 +308,16 @@ polygon from μ̄.
 | File | Role |
 |---|---|
 | `makePassThroughEstimator.m` | `Initialize`/`Predict`/`Correct` handles; belief = latest scan, zero covariance, no-op predict. The EKF will be a sibling `make...Estimator`. |
+| `predictBoundaryByTransport.m` | Placeholder for the methodology boundary predictor (transport, then `V_ε`); errors until implemented. |
 
 ### `+control`
 
 | File | Role |
 |---|---|
 | `referencePolicy.m` | No-control policy: returns the nominal input. |
-| `makeSignedDistanceCbfPolicy.m` | **The CBF-QP controller and gradient** (§4). |
-| `makeOracleBoundarySource.m` | Boundary source (i): re-casts true geometry at a queried pose. |
+| `makeSignedDistanceCbfPolicy.m` | **The CBF-QP policy** (§4): predict, barrier, gradient, solve. |
+| `barrierGradient.m` | Least-squares `dh/dpose` and `dh/dtarget` over beam-spacing samples (eq. 12). |
+| `solveCbfQp.m` | The slack CBF-QP with `quadprog`, its status and its fallbacks. |
 
 ### `+viz`: offline, reads `result` only
 

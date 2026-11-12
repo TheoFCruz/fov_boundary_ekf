@@ -1,14 +1,14 @@
 function policy = makeSignedDistanceCbfPolicy(varargin)
 %MAKESIGNEDDISTANCECBFPOLICY Construct a world-frame continuous CBF-QP policy.
 %
-%   policy = control.makeSignedDistanceCbfPolicy() returns a callback for
-%   simulation.runScenario. By default the barrier is built from the current
-%   belief's frozen polygon (today's behavior, expressed directly in world
-%   frame rather than the observer-local frame). Passing config.BoundarySource
-%   = source, with boundary = source(observation, observerPose) returning a
-%   world-frame closed polygon, lets a caller supply oracle re-cast geometry
-%   (see control.makeOracleBoundarySource) or, later, EKF mean-transport
-%   geometry through the same seam.
+%   policy = control.makeSignedDistanceCbfPolicy(config) returns a callback
+%   for simulation.runScenario. config.BoundaryPredictor is required:
+%   boundary = predictor(belief, pose) returns the closed world-frame visible
+%   polygon the observer would see from pose given the current belief. The
+%   barrier and its least-squares gradient are evaluated on that polygon at
+%   the current and displaced poses. The baseline is the oracle predictor
+%   built from fov.visibleBoundaryAt; the methodology's transport predictor
+%   (estimation.predictBoundaryByTransport) will plug into the same field.
 
 % Freeze the experiment's CBF choices when the policy callback is constructed.
 config = validateConfig(parseConfig(varargin{:}));
@@ -27,135 +27,80 @@ policy = @applyPolicy;
         observerPose = reshape(double(observation.ObserverPose), 3, 1);
         leaderPose = reshape(double(observation.LeaderPose), 3, 1);
         leaderReference = reshape(double(observation.LeaderReference), 3, 1);
+        leaderPosition = leaderPose(1:2);
         belief = observation.Belief;
-        % Every fallback below returns the bounded nominal, not a stop command.
+        % Geometry fallbacks return the bounded nominal, not a stop command.
         clippedReference = min(max(reference, config.InputLower), config.InputUpper);
 
-        % Select the world-frame boundary source for h(pose, target).
-        if isempty(config.BoundarySource)
-            % Unsupported directions must not become an invented closed region.
-            if ~all(belief.IsSupported)
-                [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
-                    clippedReference, "invalid-belief-fallback");
-                return;
-            end
-            boundaryAt = @(pose) fov.boundaryFromRanges(pose.', belief.Angles, ...
-                belief.Mean, belief.OpeningAngle);
-            diagnostics.BoundarySource = "belief-frozen";
-        else
-            boundaryAt = @(pose) config.BoundarySource(observation, pose);
-            diagnostics.BoundarySource = "supplied";
-        end
+        % Predict: world-frame visible polygon from the current belief at a pose.
+        boundaryAt = @(pose) config.BoundaryPredictor(belief, pose);
 
-        % h(pose, target) = -signedEuclideanDistance(source(pose), target) - margin.
-        try
-            nominalBoundary = boundaryAt(observerPose);
-            [barrier, signedDistance] = evaluateBarrier(nominalBoundary, ...
-                leaderPose(1:2), config.DistanceMargin);
-        catch exception
-            if isInvalidGeometryException(exception)
-                [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
-                    clippedReference, "invalid-belief-fallback");
-                return;
-            end
-            rethrow(exception);
+        % Barrier: h = -signedEuclideanDistance(boundary, leader) - margin.
+        [barrier, signedDistance, nominalBoundary] = barrierOrNaN( ...
+            boundaryAt, observerPose, leaderPosition, config);
+        if ~isfinite(barrier)
+            [input, diagnostics] = fallbackDiagnostics( ...
+                diagnostics, clippedReference, "invalid-geometry-fallback");
+            return;
         end
         diagnostics.SignedDistance = signedDistance;
         diagnostics.BarrierValue = barrier;
 
-        % Differentiate h by least squares over beam-spacing-scaled samples.
+        % Gradient: re-predict the boundary at displaced poses; displace the
+        % leader against the current boundary.
+        barrierAtPose = @(pose) barrierOrNaN(boundaryAt, pose, leaderPosition, config);
+        barrierAtTarget = @(target) barrierOrNaN( ...
+            @(~) nominalBoundary, observerPose, target, config);
         [observerGradient, targetGradient, sampleCount, quality] = ...
-            gradientsByLeastSquares(boundaryAt, nominalBoundary, observerPose, ...
-            leaderPose(1:2), barrier, belief.Angles, config);
+            control.barrierGradient( ...
+                barrierAtPose, ...
+                barrierAtTarget, ...
+                observerPose, ...
+                leaderPosition, ...
+                barrier, ...
+                mean(diff(belief.Angles)), ...
+                config.GradientBeamMultiples);
         diagnostics.ObserverPoseGradient = observerGradient;
         diagnostics.TargetPositionGradient = targetGradient;
         diagnostics.GradientSampleCount = sampleCount;
         diagnostics.GradientQuality = quality;
-
         % An ambiguous sampled-polygon derivative is not a valid QP constraint.
         if quality ~= "usable"
-            [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
-                clippedReference, "unusable-gradient-fallback");
+            [input, diagnostics] = fallbackDiagnostics( ...
+                diagnostics, clippedReference, "unusable-gradient-fallback");
             return;
         end
 
-        % Map body-frame observer input and leader reference into h-dot terms.
+        % CBF terms: hdot = (dh/dq * G(psi)) * u + dh/dy * leaderVelocity, with
+        % G mapping body-frame observer input to world-frame pose rates.
         heading = observerPose(3);
-        observerInputMap = [cos(heading), -sin(heading), 0; ...
-            sin(heading), cos(heading), 0; 0, 0, 1];
+        observerInputMap = [
+            cos(heading), -sin(heading), 0
+            sin(heading), cos(heading), 0
+            0, 0, 1];
         coefficient = observerGradient * observerInputMap;
         leaderWorldVelocity = bodyToWorldVelocity(leaderPose(3), leaderReference);
         targetDrift = targetGradient * leaderWorldVelocity;
         diagnostics.BodyInputCoefficient = coefficient;
         diagnostics.TargetDrift = targetDrift;
 
-        % Skip the QP when bounded observer motion cannot affect the barrier.
-        minimumContribution = sum(min(coefficient.' .* config.InputLower, ...
-            coefficient.' .* config.InputUpper));
-        maximumContribution = sum(max(coefficient.' .* config.InputLower, ...
-            coefficient.' .* config.InputUpper));
-        if norm(coefficient) <= sqrt(eps) || ...
-                maximumContribution - minimumContribution <= sqrt(eps)
-            [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
-                clippedReference, "zero-control-authority");
-            return;
-        end
-
-        % The QP minimally modifies the bounded nominal command.
-        diagnostics.NominalInput = clippedReference;
-        constraintRightHandSide = -config.CbfRate * barrier - targetDrift;
-        % Give quadprog a bound-feasible point with only required CBF slack.
-        initialSlack = max(0, constraintRightHandSide - coefficient * clippedReference);
-        initialPoint = [clippedReference; initialSlack];
-        H = blkdiag(config.InputWeights, config.SlackPenalty);
-        f = [-config.InputWeights * clippedReference; 0];
-        A = [-coefficient, -1];
-        inequalityBound = -constraintRightHandSide;
-        lowerBound = [config.InputLower; 0];
-        upperBound = [config.InputUpper; Inf];
-
-        % Solve a bounded slack QP for a*u + slack >= -alpha*h - targetDrift.
-        try
-            [solution, ~, exitFlag, output] = quadprog(H, f, A, inequalityBound, ...
-                [], [], lowerBound, upperBound, initialPoint, options);
-            diagnostics.QpExitFlag = exitFlag;
-            diagnostics.QpIterations = output.iterations;
-            if ~isscalar(exitFlag) || ~isfinite(exitFlag) || exitFlag <= 0 || ...
-                    numel(solution) ~= 4 || any(~isfinite(solution)) || ...
-                    ~isfinite(diagnostics.QpIterations)
-                [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
-                    clippedReference, "qp-failure-fallback");
-                return;
-            end
-        catch
-            [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
-                clippedReference, "qp-failure-fallback");
-            return;
-        end
-
-        % Classify the outcome exactly from the constraint geometry, not slack
-        % magnitude: slack is reported numerically but never used for status.
-        controlInput = solution(1:3);
-        input = controlInput.';
-        slack = solution(4);
+        % Solve: coefficient * u + slack >= -gamma * h - targetDrift.
+        rightHandSide = -config.CbfRate * barrier - targetDrift;
+        [input, qp] = control.solveCbfQp( ...
+            coefficient, rightHandSide, reference, config, options);
+        diagnostics.NominalInput = qp.NominalInput;
         diagnostics.AppliedInput = input;
-        diagnostics.Slack = slack;
-        diagnostics.ConstraintResidual = coefficient * controlInput + slack - ...
-            constraintRightHandSide;
-        diagnostics.ActiveBounds = abs(controlInput - config.InputLower) <= sqrt(eps) | ...
-            abs(controlInput - config.InputUpper) <= sqrt(eps);
-        if coefficient * clippedReference >= constraintRightHandSide - sqrt(eps)
-            diagnostics.Status = "nominal-feasible";
-        elseif maximumContribution < constraintRightHandSide - sqrt(eps)
-            diagnostics.Status = "relaxed-with-slack";
-        else
-            diagnostics.Status = "cbf-corrected";
-        end
+        diagnostics.Slack = qp.Slack;
+        diagnostics.ConstraintResidual = qp.ConstraintResidual;
+        diagnostics.ActiveBounds = qp.ActiveBounds;
+        diagnostics.QpExitFlag = qp.ExitFlag;
+        diagnostics.QpIterations = qp.Iterations;
+        diagnostics.Status = qp.Status;
     end
 end
 
 function config = parseConfig(varargin)
-%PARSECONFIG Merge an optional experiment struct with visible baseline values.
+%PARSECONFIG Merge the experiment struct with visible baseline values.
 
 % These defaults are teaching configuration, not universal controller tuning.
 defaults = struct( ...
@@ -166,15 +111,10 @@ defaults = struct( ...
     'InputWeights', diag([1, 1, 0.25]), ...
     'SlackPenalty', 1e4, ...
     'GradientBeamMultiples', [1, 2], ...
-    'BoundarySource', []);
-if isempty(varargin)
-    % A scalar struct changes only the fields relevant to this baseline.
-    config = defaults;
-    return;
-end
+    'BoundaryPredictor', []);
 if numel(varargin) ~= 1 || ~isstruct(varargin{1}) || ~isscalar(varargin{1})
     error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
-        'config must be an optional scalar structure.');
+        'config must be a scalar structure with a BoundaryPredictor.');
 end
 config = defaults;
 provided = varargin{1};
@@ -216,9 +156,9 @@ if isempty(config.GradientBeamMultiples) || ...
     error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
         'GradientBeamMultiples must be a positive finite vector.');
 end
-if ~isempty(config.BoundarySource) && ~isa(config.BoundarySource, 'function_handle')
+if ~isa(config.BoundaryPredictor, 'function_handle')
     error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
-        'BoundarySource must be empty or a function handle.');
+        'BoundaryPredictor must be a function handle @(belief, pose).');
 end
 if ~isequal(size(config.InputWeights), [3, 3]) || ...
         any(~isfinite(config.InputWeights(:)))
@@ -238,113 +178,30 @@ config.CbfRate = double(config.CbfRate);
 config.SlackPenalty = double(config.SlackPenalty);
 end
 
-function [barrier, signedDistance] = evaluateBarrier(boundary, targetPosition, margin)
-%EVALUATEBARRIER h = -signedEuclideanDistance(boundary, target) - margin, world frame.
+function [barrier, signedDistance, boundary] = barrierOrNaN( ...
+        boundaryAt, pose, targetPosition, config)
+%BARRIERORNAN h = -signedEuclideanDistance(boundaryAt(pose), target) - margin.
+% Known invalid-geometry failures of the predicted polygon give NaN (and an
+% empty boundary); any other error is a bug and propagates.
 
-signedDistance = metrics.signedEuclideanDistance(boundary, reshape(targetPosition, 1, 2));
-barrier = -signedDistance - margin;
-end
-
-function [observerGradient, targetGradient, observerSampleCount, quality] = ...
-        gradientsByLeastSquares(boundaryAt, nominalBoundary, observerPose, ...
-        targetPosition, currentBarrier, beliefAngles, config)
-%GRADIENTSBYLEASTSQUARES Fit dh/dpose and dh/dtarget over beam-spacing samples.
-%
-% Perturbations are scaled to the sensor's own angular grid (dtheta) so the
-% gradient sees the geometry, not the sampled-polygon's sub-beam artifacts.
-% Steps follow the methodology (eq. 12): delta_psi = dtheta and
-% delta_x = delta_y = |y - p| * dtheta, about one beam spacing at the target.
-
-dtheta = mean(diff(beliefAngles));
-rangeToTarget = norm(targetPosition(:) - observerPose(1:2));
-axisSteps = [rangeToTarget * dtheta; rangeToTarget * dtheta; dtheta];
-multiples = config.GradientBeamMultiples;
-
-% Observer pose samples: perturb one of x, y, psi at a time, both signs.
-numObserverSamples = 3 * numel(multiples) * 2;
-designObserver = zeros(numObserverSamples, 3);
-valuesObserver = nan(numObserverSamples, 1);
-sampleIndex = 0;
-for axis = 1:3
-    for multiple = multiples
-        step = multiple * axisSteps(axis);
-        for signValue = [1, -1]
-            sampleIndex = sampleIndex + 1;
-            displacedPose = observerPose;
-            displacedPose(axis) = displacedPose(axis) + signValue * step;
-            designObserver(sampleIndex, axis) = signValue * step;
-            try
-                sampleBoundary = boundaryAt(displacedPose);
-                valuesObserver(sampleIndex) = evaluateBarrier(sampleBoundary, ...
-                    targetPosition, config.DistanceMargin);
-            catch exception
-                if isInvalidGeometryException(exception)
-                    valuesObserver(sampleIndex) = NaN;
-                else
-                    rethrow(exception);
-                end
-            end
-        end
+try
+    boundary = boundaryAt(pose);
+    signedDistance = metrics.signedEuclideanDistance( ...
+        boundary, reshape(targetPosition, 1, 2));
+catch exception
+    if ~isInvalidGeometryException(exception)
+        rethrow(exception);
     end
+    boundary = [];
+    signedDistance = NaN;
 end
-finiteObserver = isfinite(valuesObserver);
-observerSampleCount = sum(finiteObserver);
-observerGradient = nan(1, 3);
-observerUsable = isfinite(currentBarrier) && ...
-    rank(designObserver(finiteObserver, :)) == 3;
-if observerUsable
-    fit = designObserver(finiteObserver, :) \ (valuesObserver(finiteObserver) - currentBarrier);
-    observerGradient = fit.';
-    observerUsable = all(isfinite(observerGradient));
-end
-
-% Target position samples: perturb x, y against the fixed nominal boundary.
-numTargetSamples = 2 * numel(multiples) * 2;
-designTarget = zeros(numTargetSamples, 2);
-valuesTarget = nan(numTargetSamples, 1);
-sampleIndex = 0;
-for axis = 1:2
-    for multiple = multiples
-        step = multiple * axisSteps(axis);
-        for signValue = [1, -1]
-            sampleIndex = sampleIndex + 1;
-            displacedTarget = targetPosition(:);
-            displacedTarget(axis) = displacedTarget(axis) + signValue * step;
-            designTarget(sampleIndex, axis) = signValue * step;
-            try
-                valuesTarget(sampleIndex) = evaluateBarrier(nominalBoundary, ...
-                    displacedTarget, config.DistanceMargin);
-            catch exception
-                if isInvalidGeometryException(exception)
-                    valuesTarget(sampleIndex) = NaN;
-                else
-                    rethrow(exception);
-                end
-            end
-        end
-    end
-end
-finiteTarget = isfinite(valuesTarget);
-targetGradient = nan(1, 2);
-targetUsable = isfinite(currentBarrier) && ...
-    rank(designTarget(finiteTarget, :)) == 2;
-if targetUsable
-    fit = designTarget(finiteTarget, :) \ (valuesTarget(finiteTarget) - currentBarrier);
-    targetGradient = fit.';
-    targetUsable = all(isfinite(targetGradient));
-end
-
-quality = "unusable";
-if observerUsable && targetUsable
-    quality = "usable";
-end
+barrier = -signedDistance - config.DistanceMargin;
 end
 
 function velocity = bodyToWorldVelocity(heading, bodyReference)
 %BODYTOWORLDVELOCITY Convert the leader's translational reference only.
 
-velocity = [cos(heading), -sin(heading); sin(heading), cos(heading)] * ...
-    bodyReference(1:2);
+velocity = [cos(heading), -sin(heading); sin(heading), cos(heading)] * bodyReference(1:2);
 end
 
 function [input, diagnostics] = fallbackDiagnostics(diagnostics, clippedReference, status)
@@ -365,7 +222,6 @@ function diagnostics = initialDiagnostics(reference)
 
 diagnostics = struct( ...
     'Method', "signed-distance-cbf-qp", ...
-    'BoundarySource', "not-computed", ...
     'SignedDistance', NaN, ...
     'BarrierValue', NaN, ...
     'ObserverPoseGradient', nan(1, 3), ...
