@@ -131,5 +131,140 @@ classdef TestRayCasting < matlab.unittest.TestCase
             verifyEqual(testCase, result.NominalBoundary(end, :), ...
                 observer.Position);
         end
+
+        function emptyObstacleCastHasNoDepthJumpsAndIsUnbridged(testCase)
+            observer = fov.Observer([0, 0], 0, 10, pi/2);
+            emptyObstacles = struct('Name', {}, 'Vertices', {});
+            result = fov.castRays(observer, emptyObstacles, 'NumRays', 11);
+            expected = fov.boundaryFromRanges([observer.Position, ...
+                observer.Heading], result.RayAngles - observer.Heading, ...
+                result.Distances, observer.OpeningAngle);
+
+            verifyFalse(testCase, any(result.IsDepthJump));
+            verifyEqual(testCase, result.VisibleBoundary, expected, 'AbsTol', 1e-12);
+        end
+
+        function flagsDepthJumpsAtBoxAndWallTransitions(testCase)
+            observer = fov.Observer([0, 0], 0, 10, pi);
+            box = fov.polygonObstacle('box', [4, -0.5; 5, -0.5; 5, 0.5; 4, 0.5]);
+            wall = fov.polygonObstacle('wall', [9, -5; 9.3, -5; 9.3, 5; 9, 5]);
+            result = fov.castRays(observer, [box, wall], 'NumRays', 13);
+
+            jumpPairs = find(result.IsDepthJump);
+            jumpIdentityPairs = [result.HitObstacleId(jumpPairs), ...
+                result.HitObstacleId(jumpPairs + 1)];
+            verifyNotEmpty(testCase, jumpPairs);
+            verifyTrue(testCase, any(all(sort(jumpIdentityPairs, 2) == [1, 2], 2)), ...
+                'Expected a box/wall depth jump.');
+            verifyTrue(testCase, any(all(sort(jumpIdentityPairs, 2) == [0, 2], 2)), ...
+                'Expected a wall/no-return depth jump.');
+
+            % The oracle boundary must remain a valid polygon for the metric.
+            metrics.signedEuclideanDistance(result.VisibleBoundary, [0, 0]);
+
+            % A point just behind the box's front-top corner, in the gap the
+            % old chord bridge wrongly drew as visible, must read as outside.
+            shadowBearing = deg2rad(5);
+            shadowPoint = 4.5 * [cos(shadowBearing), sin(shadowBearing)];
+            signedDistance = metrics.signedEuclideanDistance( ...
+                result.VisibleBoundary, shadowPoint);
+            verifyGreaterThan(testCase, signedDistance, 0);
+        end
+
+        function insertsStepVertexAtNearToFarJump(testCase)
+            angles = deg2rad([0; 10; 20; 30]);
+            unit = [cos(angles), sin(angles)];
+
+            boundary = fov.boundaryFromRanges([0, 0, 0], angles, [3; 3; 5; 5], ...
+                pi/2, [false; true; false]);
+
+            expected = [0, 0; 3 * unit(1, :); 3 * unit(2, :); 3 * unit(3, :); ...
+                5 * unit(3, :); 5 * unit(4, :); 0, 0];
+            verifyEqual(testCase, boundary, expected, 'AbsTol', 1e-12);
+            verifyLessThan(testCase, metrics.signedEuclideanDistance( ...
+                boundary, [2, 0.5]), 0);
+        end
+
+        function insertsStepVertexAtFarToNearJump(testCase)
+            angles = deg2rad([0; 10; 20; 30]);
+            unit = [cos(angles), sin(angles)];
+
+            boundary = fov.boundaryFromRanges([0, 0, 0], angles, [5; 5; 3; 3], ...
+                pi/2, [false; true; false]);
+
+            expected = [0, 0; 5 * unit(1, :); 5 * unit(2, :); 3 * unit(2, :); ...
+                3 * unit(3, :); 3 * unit(4, :); 0, 0];
+            verifyEqual(testCase, boundary, expected, 'AbsTol', 1e-12);
+            verifyLessThan(testCase, metrics.signedEuclideanDistance( ...
+                boundary, [2, 0.5]), 0);
+        end
+
+        function collapsesFarApertureEdgeRayInsteadOfSpike(testCase)
+            % The far edge ray would double back over the aperture side edge.
+            angles = deg2rad([0; 10; 20]);
+            unit = [cos(angles), sin(angles)];
+
+            boundary = fov.boundaryFromRanges([0, 0, 0], angles, [5; 3; 3], ...
+                pi/2, [true; false]);
+
+            expected = [0, 0; 3 * unit; 0, 0];
+            verifyEqual(testCase, boundary, expected, 'AbsTol', 1e-12);
+            verifyLessThan(testCase, metrics.signedEuclideanDistance( ...
+                boundary, [2, 0.2]), 0);
+        end
+
+        function collapsesIsolatedFarRayInsteadOfSpike(testCase)
+            % One ray seeing through a gap pulls in to its farther near neighbour.
+            angles = deg2rad([0; 10; 20; 30]);
+            unit = [cos(angles), sin(angles)];
+
+            boundary = fov.boundaryFromRanges([0, 0, 0], angles, [3; 6; 4; 4], ...
+                pi/2, [true; true; false]);
+
+            expected = [0, 0; 3 * unit(1, :); 3 * unit(2, :); 4 * unit(2, :); ...
+                4 * unit(3, :); 4 * unit(4, :); 0, 0];
+            verifyEqual(testCase, boundary, expected, 'AbsTol', 1e-12);
+            verifyLessThan(testCase, metrics.signedEuclideanDistance( ...
+                boundary, [2, 0.5]), 0);
+        end
+
+        function omittedOrEmptyIsJumpReproducesOriginalConstruction(testCase)
+            angles = [0; deg2rad(10)];
+            ranges = [3; 5];
+            openingAngle = pi/2;
+            observerPose = [0, 0, 0];
+
+            withoutArgument = fov.boundaryFromRanges(observerPose, angles, ...
+                ranges, openingAngle);
+            withEmptyFlags = fov.boundaryFromRanges(observerPose, angles, ...
+                ranges, openingAngle, false(1, 0).');
+
+            verifySize(testCase, withoutArgument, [4, 2]);
+            verifyEqual(testCase, withEmptyFlags, withoutArgument, 'AbsTol', 1e-12);
+        end
+
+        function rejectsMismatchedIsJumpLength(testCase)
+            angles = [0; deg2rad(10); deg2rad(20)];
+            ranges = [3; 5; 5];
+            verifyError(testCase, @() fov.boundaryFromRanges([0, 0, 0], ...
+                angles, ranges, pi/2, true(3, 1)), ...
+                'fov:boundaryFromRanges:InvalidIsJump');
+        end
+
+        function isPointVisibleChecksRangeApertureAndOcclusion(testCase)
+            pose = [0, 0, 0];
+            spec = fov.FovSpec(10, pi/2);
+            wall = fov.polygonObstacle('wall', [4, -2; 4, 2; 4.3, 2; 4.3, -2]);
+
+            verifyTrue(testCase, fov.isPointVisible(pose, spec, wall, [2, 0]));
+            verifyFalse(testCase, fov.isPointVisible(pose, spec, wall, [5, 0]));
+            verifyFalse(testCase, fov.isPointVisible(pose, spec, wall, ...
+                10 * [cos(deg2rad(80)), sin(deg2rad(80))]));
+            verifyFalse(testCase, fov.isPointVisible(pose, spec, wall, [11, 0]));
+
+            fullCircleSpec = fov.FovSpec(10, 2*pi);
+            verifyTrue(testCase, fov.isPointVisible(pose, fullCircleSpec, ...
+                wall, [-3, 0]));
+        end
     end
 end

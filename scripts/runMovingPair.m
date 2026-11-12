@@ -4,8 +4,7 @@ run('startup.m');
 scenario = scenarios.movingPair();
 % Tune a deliberately difficult CBF visibility experiment, not a safety demo.
 policyConfig = struct('DistanceMargin', 1.0, ...
-    'CbfRate', 2, ...
-    'PoseFiniteDifferenceStep', [1e-3; 1e-3; 1e-5]);
+    'CbfRate', 2);
 scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy(policyConfig);
 scenario.Sensor.RangeNoiseStd = 0.1;
 result = simulation.runScenario(scenario);

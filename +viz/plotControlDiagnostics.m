@@ -49,6 +49,6 @@ legend('Delta vxBody', 'Delta vyBody', 'Delta omega', 'Location', 'best');
 grid on;
 
 [statusNames, ~, group] = unique(status);
-disp(table(statusNames, accumarray(group, 1), ...
+disp(table(statusNames(:), accumarray(group(:), 1), ...
     'VariableNames', {'Status', 'Count'}));
 end

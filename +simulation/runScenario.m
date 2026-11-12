@@ -146,7 +146,17 @@ signedDistance = nan(sampleCount, 1);
 isVisible = false(sampleCount, 1);
 isValid = false(sampleCount, 1);
 rangeResidual = nan(sampleCount, 1);
+trueVisible = false(sampleCount, 1);
 basePosition = reshape(double(result.Config.Base.Position), 1, 2);
+obstacles = result.Config.Obstacles;
+fovSpec = result.Config.Observer.Fov;
+
+% Oracle scoring data only: true line-of-sight against obstacles, not a
+% filter or controller input.
+for index = 1:sampleCount
+    trueVisible(index) = fov.isPointVisible(result.ObserverPose(index, :), ...
+        fovSpec, obstacles, result.FollowerPose(index, 1:2));
+end
 
 for index = 1:sampleCount
     belief = result.Beliefs{index};
@@ -184,4 +194,5 @@ metricLog.ObserverFollowerDistance = sqrt(sum((result.ObserverPose(:, 1:2) - ...
 metricLog.ObserverBaseDistance = sqrt(sum((result.ObserverPose(:, 1:2) - ...
     basePosition) .^ 2, 2));
 metricLog.PassThroughRangeResidual = rangeResidual;
+metricLog.TrueVisible = trueVisible;
 end

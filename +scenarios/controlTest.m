@@ -11,9 +11,12 @@ scenario.Name = "CBF-QP follower visibility control test";
 scenario.Time = struct('Start', 0, 'Stop', 10, 'Step', 0.05);
 scenario.Observer.InitialPose = [0, 0, 0];
 scenario.Observer.Reference = struct('Times', 0, 'Values', [0, 0, 0]);
-scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy();
 scenario.Follower.InitialPose = [8, 1, 0];
 scenario.Follower.Reference = struct('Times', 0, 'Values', [0.4, 0, 0]);
 scenario.Obstacles = struct('Name', {}, 'Vertices', {});
+% The oracle boundary source re-casts against the (empty) obstacle set above.
+scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy(struct( ...
+    'BoundarySource', control.makeOracleBoundarySource(scenario.Obstacles, ...
+    scenario.Observer.Fov, scenario.Sensor.NumRays)));
 scenario.Playback.Bounds = [-2, 14, -6, 6];
 end
