@@ -43,6 +43,10 @@ to the input bounds, not a zero command.
 
 ## Structure
 
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the simulation
+workflow, where the oracle ray cast and CBF gradient are computed, the
+swappable policy/estimator/boundary-source slots, and a per-file reference.
+
 ```text
 +fov/          FOV models, obstacle validation, ray geometry, boundary conversion
   +internal/   Low-level geometry helpers
