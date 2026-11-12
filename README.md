@@ -2,11 +2,11 @@
 
 MATLAB testbed for estimating the observer-frame first-occlusion-boundary range
 profile `B_t(theta)` from simulated range scans. The target is the current
-boundary belief, its support, and its uncertainty—not observer or follower pose
+boundary belief, its support, and its uncertainty—not observer or leader pose
 estimation, occupancy, or a persistent map.
 
 The current pre-EKF foundation provides a deterministic moving-observer/moving-
-follower simulation, ray-cast sensing with optional seeded range noise, a
+leader simulation, ray-cast sensing with optional seeded range noise, a
 pass-through boundary estimator, a belief-only CBF-QP baseline, and offline
 replay. The EKF, segmentation, motion transport, covariance propagation, and
 support/reset/forgetting policies are not implemented yet.
@@ -26,8 +26,8 @@ viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);
 
 For the CBF-QP experiment, use `scenarios.controlTest()` or
 `scenarios.boxInFrontOfWall()` (a compact occlusion scenario: a 0.2 m box in
-front of a wall, 2 m FoV, follower at 0.1 m/s), `scenarios.clutteredField()`
-(small posts scattered around a slow follower's path, loosely after the
+front of a wall, 2 m FoV, leader at 0.1 m/s), `scenarios.clutteredField()`
+(small posts scattered around a slow leader's path, loosely after the
 VisCoNetwork cluttered environment), or configure
 `control.makeSignedDistanceCbfPolicy()` on a moving-pair scenario. It
 requires MATLAB Optimization Toolbox (`quadprog`) and is an experimental sampled-polygon baseline, not a safety guarantee or controller
@@ -68,9 +68,9 @@ Start from `scenarios.movingPair()` and edit its plain-struct fields:
 | Concern | Fields |
 | --- | --- |
 | Time | `scenario.Time.Start`, `Stop`, `Step` |
-| Initial poses | `Observer.InitialPose`, `Follower.InitialPose` |
+| Initial poses | `Observer.InitialPose`, `Leader.InitialPose` |
 | FOV | `Observer.Fov = fov.FovSpec(maxRange, openingAngle)` |
-| Body-frame references | `Observer.Reference`, `Follower.Reference` |
+| Body-frame references | `Observer.Reference`, `Leader.Reference` |
 | Sensor | `Sensor.NumRays`, `RangeNoiseStd`, `Seed` |
 | Estimator | `Estimator = estimation.makePassThroughEstimator()` |
 | Policy | `Observer.Policy` |

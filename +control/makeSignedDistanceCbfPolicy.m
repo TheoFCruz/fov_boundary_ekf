@@ -25,8 +25,8 @@ policy = @applyPolicy;
         reference = reshape(double(reference), 3, 1);
         diagnostics = initialDiagnostics(reference);
         observerPose = reshape(double(observation.ObserverPose), 3, 1);
-        followerPose = reshape(double(observation.FollowerPose), 3, 1);
-        followerReference = reshape(double(observation.FollowerReference), 3, 1);
+        leaderPose = reshape(double(observation.LeaderPose), 3, 1);
+        leaderReference = reshape(double(observation.LeaderReference), 3, 1);
         belief = observation.Belief;
         % Every fallback below returns the bounded nominal, not a stop command.
         clippedReference = min(max(reference, config.InputLower), config.InputUpper);
@@ -51,7 +51,7 @@ policy = @applyPolicy;
         try
             nominalBoundary = boundaryAt(observerPose);
             [barrier, signedDistance] = evaluateBarrier(nominalBoundary, ...
-                followerPose(1:2), config.DistanceMargin);
+                leaderPose(1:2), config.DistanceMargin);
         catch exception
             if isInvalidGeometryException(exception)
                 [input, diagnostics] = fallbackDiagnostics(diagnostics, ...
@@ -66,7 +66,7 @@ policy = @applyPolicy;
         % Differentiate h by least squares over beam-spacing-scaled samples.
         [observerGradient, targetGradient, sampleCount, quality] = ...
             gradientsByLeastSquares(boundaryAt, nominalBoundary, observerPose, ...
-            followerPose(1:2), barrier, belief.Angles, config);
+            leaderPose(1:2), barrier, belief.Angles, config);
         diagnostics.ObserverPoseGradient = observerGradient;
         diagnostics.TargetPositionGradient = targetGradient;
         diagnostics.GradientSampleCount = sampleCount;
@@ -79,13 +79,13 @@ policy = @applyPolicy;
             return;
         end
 
-        % Map body-frame observer input and follower reference into h-dot terms.
+        % Map body-frame observer input and leader reference into h-dot terms.
         heading = observerPose(3);
         observerInputMap = [cos(heading), -sin(heading), 0; ...
             sin(heading), cos(heading), 0; 0, 0, 1];
         coefficient = observerGradient * observerInputMap;
-        followerWorldVelocity = bodyToWorldVelocity(followerPose(3), followerReference);
-        targetDrift = targetGradient * followerWorldVelocity;
+        leaderWorldVelocity = bodyToWorldVelocity(leaderPose(3), leaderReference);
+        targetDrift = targetGradient * leaderWorldVelocity;
         diagnostics.BodyInputCoefficient = coefficient;
         diagnostics.TargetDrift = targetDrift;
 
@@ -341,7 +341,7 @@ end
 end
 
 function velocity = bodyToWorldVelocity(heading, bodyReference)
-%BODYTOWORLDVELOCITY Convert the follower's translational reference only.
+%BODYTOWORLDVELOCITY Convert the leader's translational reference only.
 
 velocity = [cos(heading), -sin(heading); sin(heading), cos(heading)] * ...
     bodyReference(1:2);

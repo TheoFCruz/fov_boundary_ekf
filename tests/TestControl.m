@@ -16,11 +16,11 @@ classdef TestControl < matlab.unittest.TestCase
             verifyGreaterThanOrEqual(testCase, diagnostics.ConstraintResidual, -1e-10);
         end
 
-        function policyMapsBodyInputAndFollowerDrift(testCase)
+        function policyMapsBodyInputAndLeaderDrift(testCase)
             observation = validObservation();
             observation.ObserverPose = [0, 0, pi/2];
-            observation.FollowerPose = [-0.5, 2, pi/2];
-            observation.FollowerReference = [1, 0, 3];
+            observation.LeaderPose = [-0.5, 2, pi/2];
+            observation.LeaderReference = [1, 0, 3];
             policy = control.makeSignedDistanceCbfPolicy();
             [~, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
 
@@ -35,7 +35,7 @@ classdef TestControl < matlab.unittest.TestCase
 
         function policyCorrectsNearBoundaryAndRespectsBounds(testCase)
             observation = validObservation();
-            observation.FollowerPose = [4.93, 0.3, 0];
+            observation.LeaderPose = [4.93, 0.3, 0];
             policy = control.makeSignedDistanceCbfPolicy();
             [input, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
 
@@ -52,8 +52,8 @@ classdef TestControl < matlab.unittest.TestCase
 
         function policyUsesSlackWhenBoundsCannotCounterTargetDrift(testCase)
             observation = validObservation();
-            observation.FollowerPose = [4.93, 0.3, 0];
-            observation.FollowerReference = [100, 0, 0];
+            observation.LeaderPose = [4.93, 0.3, 0];
+            observation.LeaderReference = [100, 0, 0];
             policy = control.makeSignedDistanceCbfPolicy();
             [input, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
 
@@ -99,7 +99,7 @@ classdef TestControl < matlab.unittest.TestCase
 
         function policyRespondsToBeliefGeometryDeterministically(testCase)
             observation = validObservation();
-            observation.FollowerPose = [3, 0.5, 0];
+            observation.LeaderPose = [3, 0.5, 0];
             policy = control.makeSignedDistanceCbfPolicy();
             [firstInput, ~, firstDiagnostics] = policy(observation, [0, 0, 0], struct());
             [secondInput, ~, secondDiagnostics] = policy(observation, [0, 0, 0], struct());
@@ -206,11 +206,11 @@ belief = struct( ...
 observation = struct( ...
     'Belief', belief, ...
     'ObserverPose', [0, 0, 0], ...
-    'FollowerPose', [2, 0.5, 0], ...
-    'FollowerReference', [0, 0, 0]);
+    'LeaderPose', [2, 0.5, 0], ...
+    'LeaderReference', [0, 0, 0]);
 end
 
-function observation = oracleObservation(fovSpec, numRays, followerPose)
+function observation = oracleObservation(fovSpec, numRays, leaderPose)
 %ORACLEOBSERVATION Build an observation with the sensor-grid Belief.Angles
 % that an oracle BoundarySource still needs for the beam-spacing step size.
 angles = fov.sampleRayAngles(fov.Observer('Position', [0, 0], 'Heading', 0, ...
@@ -220,6 +220,6 @@ belief = struct('Angles', angles, 'Mean', nan(size(angles)), ...
 observation = struct( ...
     'Belief', belief, ...
     'ObserverPose', [0, 0, 0], ...
-    'FollowerPose', followerPose, ...
-    'FollowerReference', [0, 0, 0]);
+    'LeaderPose', leaderPose, ...
+    'LeaderReference', [0, 0, 0]);
 end

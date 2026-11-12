@@ -5,9 +5,9 @@
 This MATLAB project is primarily a probabilistic robotics testbed for
 motion-aware first-occlusion-boundary field-of-view estimation. The target is
 the observer-frame first-boundary range profile `B_t(theta)`, not observer
-pose, follower/target pose, occupancy, or a persistent world map.
+pose, leader/target pose, occupancy, or a persistent world map.
 
-Checkpoint 1 is a deterministic foundation: a moving observer/follower, static
+Checkpoint 1 is a deterministic foundation: a moving observer/leader, static
 convex polygon obstacles, ray-cast scans with optional deterministic range
 noise, a pass-through estimator, a replaceable policy, a headless deterministic
 runner, and offline replay.

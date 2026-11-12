@@ -59,7 +59,7 @@ dh/dx = 1 (drive toward the wall); the true value is 0.
 ### Scenarios do not exercise occlusion
 
 In `movingPair` the nearest polygon edge is always an aperture side edge and
-the follower never approaches the wall. Runs with `RangeNoiseStd = 0` and
+the leader never approaches the wall. Runs with `RangeNoiseStd = 0` and
 `0.1` produce identical closed-loop trajectories and statuses.
 
 ## Recommended changes (priority order)
@@ -144,7 +144,7 @@ implemented and headlessly verified. `runtests('tests')` passed 70/70.
    reference clipped to the input bounds.
 7. **Occlusion scenario (done).** Added `scenarios.boxInFrontOfWall` (plan
    scenario S2): a box occluder in front of a far wall, zero observer
-   reference, follower walking through the box's shadow.
+   reference, leader walking through the box's shadow.
 
 Replay QoL: `viz.animateSimulation`'s world-panel title appends
 `h = %.3f | <status>` from the displayed interval's `PolicyDiagnostics` when

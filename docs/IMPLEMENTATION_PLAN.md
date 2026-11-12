@@ -3,7 +3,7 @@
 This is the execution plan for the MATLAB first-boundary field-of-view (FoV)
 testbed. The active target is the observer-frame first-occlusion-boundary range
 profile `B_t(theta)`, together with its support and uncertainty—not observer or
-follower estimation, occupancy, a persistent world map, or a controller
+leader estimation, occupancy, a persistent world map, or a controller
 redesign research program. A narrowly scoped belief-derived controller
 baseline is explicitly authorized in Milestone B only to exercise this
 interface.
@@ -44,7 +44,7 @@ in its original 10 m layout the target was lost for about 2.5 s where the CBF
 constraint was infeasible within the input bounds (`relaxed-with-slack`).
 
 2026-10-28: `scenarios.boxInFrontOfWall` was rescaled to a compact layout
-(0.2 m box, wall at x = 1.8 m, 2 m FoV, same 81 rays, follower at 0.1 m/s for
+(0.2 m box, wall at x = 1.8 m, 2 m FoV, same 81 rays, leader at 0.1 m/s for
 12 s). Headless run: target truly visible on all samples, min `BarrierValue`
 -0.033, no slack needed (169 cbf-corrected, 71 nominal-feasible). Inputs are
 still not smooth: 53 of 239 steps change an input component by more than 0.2,
@@ -60,7 +60,7 @@ focused and desktop verification; Milestone B is also implementation-complete
 but awaiting focused and desktop verification. Its approved design is a
 belief-derived continuous-time CBF-QP baseline evaluated at controller samples,
 using the current noisy pass-through belief before the EKF. The known current
-follower reference velocity, initial baseline configuration, and invalid-case
+leader reference velocity, initial baseline configuration, and invalid-case
 behavior are selected for implementation and verification; they must not be
 inferred from wall-clock time or hidden oracle data. The runner sample interval
 remains documented for zero-order-hold interpretation, but is not an explicit
@@ -71,7 +71,7 @@ term in the continuous CBF inequality.
 The current checkout contains the following foundation:
 
 - `simulation.runScenario` is a headless, causal, zero-order-held forward-
-  Euler runner for a moving observer and follower.
+  Euler runner for a moving observer and leader.
 - `sensing.raycastScan` adapts first-return ray casts into a measurement
   structure. It supports return-only Gaussian range noise clamped to
   `[0, MaxRange]`; no-return caps remain unchanged. `fov.castRays` remains the
@@ -328,10 +328,10 @@ estimator causes controller problems before filtering; it is not a claim that
 the pass-through belief is reliable.
 
 The policy uses only the current observation, current belief, configured
-reference, and the causally available current follower reference velocity. It
+reference, and the causally available current leader reference velocity. It
 must never consume raw casts, obstacle polygons, future inputs, or full logs.
-The known follower-pose assumption remains explicit: `p` is the current known
-target/follower position supplied by the checkpoint observation, not an
+The known leader-pose assumption remains explicit: `p` is the current known
+target/leader position supplied by the checkpoint observation, not an
 estimated target state. The policy's geometry is constructed only from the
 current belief, never directly from a scan, raw cast, obstacle polygon, future
 input, or full log. Unsupported directions remain unsupported; the policy must
@@ -354,7 +354,7 @@ h = -(d(p,F) + DistanceMargin)
   = -d(p,F) - DistanceMargin.
 ```
 
-Thus `h >= 0` means that the known target/follower point is at least
+Thus `h >= 0` means that the known target/leader point is at least
 `DistanceMargin` inside the sampled estimated polygon. This is an interior
 condition for the estimated polygon, not a clearance guarantee for continuous
 visibility or the oracle FoV.
@@ -380,10 +380,10 @@ G_o(yaw) = [[cos(yaw), -sin(yaw), 0],
             [0,         0,        1]].
 ```
 
-The target-motion model is resolved: use the known current follower reference
+The target-motion model is resolved: use the known current leader reference
 velocity. Convert its body-frame translational components to world velocity
-using the current follower yaw,
-`v_p = R(yawFollower) * [vxFollowerBody; vyFollowerBody]`. The follower yaw
+using the current leader yaw,
+`v_p = R(yawLeader) * [vxLeaderBody; vyLeaderBody]`. The leader yaw
 rate does not directly move the target point instantaneously. The runner must
 make this current-interval reference available causally to the policy; it is
 not a future input. Both agents still advance from the same pre-step snapshot.
@@ -452,7 +452,7 @@ Policy.PoseFiniteDifferenceStep = [1e-3; 1e-3; 1e-5]; % m, m, rad
 ```
 
 These are initial baseline defaults, not universal guarantees. The known
-current follower reference velocity is the resolved target input model and is
+current leader reference velocity is the resolved target input model and is
 provided causally by the runner. The value `CbfRate=4` is first-order
 equivalent to the prior `gamma` of about `0.2` at a `0.05 s` sample interval,
 but the continuous inequality does not require that interval as a parameter.
@@ -523,9 +523,9 @@ custom QP backend. Geometry remains in `+fov`, the policy and QP seam in
 **Implementation status (2026-09-10):**
 `control.makeSignedDistanceCbfPolicy` now constructs frozen belief-local
 geometry, calculates continuous observer-pose and target-position finite-
-difference gradients, incorporates the causal known follower reference velocity,
+difference gradients, incorporates the causal known leader reference velocity,
 and solves the bounded slack QP with direct `quadprog`. `simulation.runScenario`
-now exposes `FollowerReference` in the current policy observation. Focused
+now exposes `LeaderReference` in the current policy observation. Focused
 `TestControl` and simulation-seam tests were added but not run. Milestone B
 remains unchecked pending focused/full MATLAB verification and zero/noise desktop
 inspection; no true-FoV or safety result is claimed.
@@ -539,7 +539,7 @@ Until then every item below remains unchecked.
 
 - [ ] Implement the belief-derived sampled-polygon barrier, frozen observer-
   local geometry, continuous sampled-controller inequality, and causal known
-  follower-reference-velocity input.
+  leader-reference-velocity input.
 - [ ] Implement direct `quadprog` use with the stated options, matrices,
   bounded nominal feasible start, finite bounds, slack, and bounded zero-command
   fallback; do not add a custom QP backend.
@@ -548,8 +548,8 @@ Until then every item below remains unchecked.
 - [ ] Validate `DistanceMargin`, `CbfRate`, input bounds, `InputWeights`,
   `SlackPenalty`, and `PoseFiniteDifferenceStep` dimensions, units,
   finiteness, and positivity/definiteness requirements.
-- [ ] Test body-to-world observer mapping and known follower translational
-  drift, including the fact that follower yaw rate has no instantaneous target
+- [ ] Test body-to-world observer mapping and known leader translational
+  drift, including the fact that leader yaw rate has no instantaneous target
   position contribution.
 - [ ] Test central and one-sided/unequal observer-pose finite differences,
   finite-difference quality reporting, and rejection of unusable gradients.
@@ -711,7 +711,7 @@ This suite should cover synchronization, body/world angle conversion,
 no-return/support semantics, deterministic seeded sensing, estimator-bypass
 prevention, policy fallback, and fixed-handle replay as those features are
 implemented. Milestone-B focused coverage should also cover body-to-world
-observer mapping, known follower translational drift,
+observer mapping, known leader translational drift,
 central and one-sided observer-pose gradients, continuous CBF/QP assembly and
 signs, `quadprog` availability and clear dependency errors, nominal-feasible
 unchanged control, corrective control, bounds, slack, solver exit handling and
@@ -781,7 +781,7 @@ suite, and no graphics pass should be claimed without actually performing it.
 - **CBF-QP limitations:** Milestone B is explicitly authorized to use the
   continuous sampled-controller barrier and direct `quadprog` contract above.
   The polygon is frozen in the current observer-local belief frame during each
-  calculation, the target drift is based on the known current follower
+  calculation, the target drift is based on the known current leader
   reference velocity, and gradients are numerical. Sample-instant enforcement
   under zero-order hold does not guarantee intersample behavior or safety for
   the true/oracle FoV; do not present it as a safety proof.
@@ -800,8 +800,8 @@ suite, and no graphics pass should be claimed without actually performing it.
   relaxed estimated-set condition, not a guarantee; lack of authority is
   reported explicitly.
 - **Resolved target model and remaining tuning:** use the known current
-  follower reference velocity, converted from body-frame translation with the
-  current follower yaw; follower yaw rate has no instantaneous target-point
+  leader reference velocity, converted from body-frame translation with the
+  current leader yaw; leader yaw rate has no instantaneous target-point
   contribution. The target model and initial defaults are resolved. Remaining
   implementation tuning and verification are open. No explicit controller time
   step is required in the continuous inequality, but the simulation sample
@@ -835,7 +835,7 @@ viz.animateSimulation(result);
 
 Configuration can change time bounds, step, independent velocity schedules,
 obstacles, FoV parameters, ray count, and initial poses without editing the
-runner. The follower pose is intentionally known to the policy in this
+runner. The leader pose is intentionally known to the policy in this
 checkpoint. There is no pursuit, collision response, continuous visibility
 guarantee, or base-link guarantee.
 

@@ -1,7 +1,7 @@
 %RUNBOXINFRONTOFWALL Run, summarize, and replay the oracle-boundary occlusion example.
 
 run('startup.m');
-% The follower passes behind the box; the CBF uses the oracle re-cast boundary.
+% The leader passes behind the box; the CBF uses the oracle re-cast boundary.
 scenario = scenarios.boxInFrontOfWall();
 result = simulation.runScenario(scenario);
 viz.plotSimulationSummary(result);

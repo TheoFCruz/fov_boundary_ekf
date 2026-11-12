@@ -4,7 +4,7 @@ function scenario = validateScenario(scenario)
 % Internal simulation helpers trust this one outer boundary. Keep this check
 % focused on fields that define the checkpoint-one experiment contract.
 
-required = {'Name', 'Time', 'Observer', 'Follower', 'Base', 'Obstacles', ...
+required = {'Name', 'Time', 'Observer', 'Leader', 'Base', 'Obstacles', ...
     'Sensor', 'Estimator', 'Playback'};
 if ~isstruct(scenario) || ~all(isfield(scenario, required))
     error('simulation:validateScenario:InvalidScenario', ...
@@ -28,9 +28,9 @@ end
 
 % Validate both agent schedules before the runner assumes trusted shapes.
 validateAgent(scenario.Observer, true, 'Observer');
-validateAgent(scenario.Follower, false, 'Follower');
+validateAgent(scenario.Leader, false, 'Leader');
 validateReference(scenario.Observer.Reference, time, 'Observer');
-validateReference(scenario.Follower.Reference, time, 'Follower');
+validateReference(scenario.Leader.Reference, time, 'Leader');
 
 % Static geometry and base position are shared across all logged samples.
 if ~(isnumeric(scenario.Base.Position) && isreal(scenario.Base.Position) && ...

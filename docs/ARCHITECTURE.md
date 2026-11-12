@@ -6,9 +6,10 @@ components are swapped, and what each file does. It reflects `main` after
 PR #3 (2026-11). For the research method itself see `docs/metodologia.pdf`;
 for status and history see `docs/IMPLEMENTATION_PLAN.md`.
 
-**Naming:** the code says **follower** for the agent the methodology calls the
-**leader** (the target `y` that must stay visible). The **observer** is the
-robot carrying the sensor and running the controller.
+**Naming:** as in the methodology, the **leader** is the agent at position `y`
+that must stay visible, and the **observer** is the robot carrying the sensor
+and running the controller. A few policy diagnostics still say "target" for the
+leader (`TargetPositionGradient`, `TargetDrift`).
 
 ## 1. The big picture
 
@@ -20,7 +21,7 @@ simulation.runScenario(s)     the only place time advances (headless, determinis
         │   per step k:
         │   1. Policy(observation)        → body input u       +control
         │   2. stepPose(observer, u)      → new poses          +simulation
-        │      stepPose(follower, ref)
+        │      stepPose(leader, ref)
         │   3. Estimator.Predict(motion)  → transported belief +estimation
         │   4. raycastScan(new pose)      → noisy scan         +sensing → +fov
         │   5. Estimator.Correct(scan)    → corrected belief   +estimation
@@ -59,13 +60,13 @@ estimator, or the boundary source is how you run a different experiment.
 ### Each step `k` (the causal loop)
 
 1. **Observation.** The runner builds `observation` with the current
-   `Belief`, `ObserverPose`, `FollowerPose`, `FollowerReference` (the
+   `Belief`, `ObserverPose`, `LeaderPose`, `LeaderReference` (the
    leader's known velocity), `Time` and `BasePosition`. It also samples the
    observer's nominal input from `Observer.Reference`.
 2. **Policy.** `[u, policyState, diagnostics] = Policy(observation,
    nominalInput, policyState)`. Here `u = [vxBody, vyBody, omega]`.
 3. **Motion.** `simulation.stepPose` advances both agents by one forward-Euler
-   step from the same starting snapshot. The observer uses `u`; the follower
+   step from the same starting snapshot. The observer uses `u`; the leader
    uses its scheduled reference.
 4. **Predict.** `Estimator.Predict(state, motion, dt)`, where `motion` holds
    the previous pose, the new pose and the applied `u`. Δp and Δψ in the old
@@ -78,9 +79,9 @@ estimator, or the boundary source is how you run a different experiment.
 ### After the loop
 
 `calculateMetrics` (local function in `runScenario.m`) adds, per sample:
-- `TrueVisible`: `fov.isPointVisible`, the oracle line of sight to the follower;
+- `TrueVisible`: `fov.isPointVisible`, the oracle line of sight to the leader;
 - `SampledPolygonSignedDistance` / `SampledPolygonVisible`: distance of the
-  follower to the belief polygon;
+  leader to the belief polygon;
 - distances to the observer and base, and the pass-through range residual.
 
 The `result` struct holds `Config` (the scenario), `Time`, all poses and
@@ -123,7 +124,7 @@ Everything is in **`+control/makeSignedDistanceCbfPolicy.m`**. The callback
      `control.makeOracleBoundarySource` this re-casts true geometry, which is
      source (i).
 2. **Barrier now:** `h = -metrics.signedEuclideanDistance(boundaryAt(currentPose),
-   followerPosition) - DistanceMargin` (local `evaluateBarrier`).
+   leaderPosition) - DistanceMargin` (local `evaluateBarrier`).
 3. **Gradient (local `gradientsByLeastSquares`, eq. 12):**
    - Steps: δψ = Δθ (beam spacing, from `belief.Angles`) and
      δx = δy = ‖y − p‖·Δθ.
@@ -132,12 +133,12 @@ Everything is in **`+control/makeSignedDistanceCbfPolicy.m`**. The callback
      `boundaryAt` at the displaced pose (12 calls) and evaluates h. A
      least-squares fit gives ∂h/∂q, which equals eq. 12's weighted central
      differences.
-   - Follower: it displaces the follower by ±ℓ steps in x and y against the
+   - Leader: it displaces the leader by ±ℓ steps in x and y against the
      fixed current polygon (8 evaluations, no new boundary), giving ∂h/∂y.
    - Samples whose polygon is invalid geometry are dropped. If too few
      remain, the gradient is marked unusable.
 4. **CBF terms:** `coefficient = ∂h/∂q · G(ψ)` maps body inputs to ḣ.
-   `TargetDrift = ∂h/∂y · ẏ` is ∂h/∂t from the follower's known velocity.
+   `TargetDrift = ∂h/∂y · ẏ` is ∂h/∂t from the leader's known velocity.
 5. **QP (direct `quadprog`):** minimize `(u − u_nom)ᵀW(u − u_nom) + λδ²`
    subject to `coefficient·u + δ ≥ −γh − drift`, input bounds and `δ ≥ 0`.
 6. **Status and fallback:** `nominal-feasible`, `cbf-corrected` or
@@ -209,15 +210,15 @@ polygon from μ̄.
 
 | Struct | Created by | Main fields |
 |---|---|---|
-| scenario | `scenarios.*` | `Name`, `Time{Start,Stop,Step}`, `Observer{InitialPose,Fov,Reference,Policy}`, `Follower{InitialPose,Reference}`, `Base{Position}`, `Obstacles`, `Sensor{NumRays,RangeNoiseStd,Seed,Tolerance}`, `Estimator`, `Playback{Bounds,FrameRate,Speed}` |
+| scenario | `scenarios.*` | `Name`, `Time{Start,Stop,Step}`, `Observer{InitialPose,Fov,Reference,Policy}`, `Leader{InitialPose,Reference}`, `Base{Position}`, `Obstacles`, `Sensor{NumRays,RangeNoiseStd,Seed,Tolerance}`, `Estimator`, `Playback{Bounds,FrameRate,Speed}` |
 | Reference schedule | scenario | `Times` (breakpoints), `Values` (rows of `[vx, vy, omega]`, held until the next breakpoint) |
 | obstacle | `fov.polygonObstacle` | `Name`, `Vertices` (convex, ordered) |
 | scan | `sensing.raycastScan` | `Time`, `ObserverPose`, `Angles` (relative to heading), `Ranges` (noisy), `HasReturn`, `IsValid`, `MaxRange`, `OpeningAngle` |
 | rawCast | `fov.castRays` | noiseless `Distances`, `EndPoints`, `HitObstacleId`, `IsDepthJump`, `VisibleBoundary`, `NominalBoundary` |
 | belief | `Estimator.Correct` | `Time`, `Angles`, `Mean`, `Covariance`, `IsSupported`, `HasReturn`, `ObserverPose`, `MaxRange`, `OpeningAngle`, `Method` |
 | motion | runner | `PreviousObserverPose`, `CurrentObserverPose`, `AppliedInput` |
-| observation | runner | `Time`, `Belief`, `ObserverPose`, `FollowerPose`, `FollowerReference`, `BasePosition` |
-| result | `runScenario` | `Config`, `Time`, `ObserverPose`, `FollowerPose`, `ObserverInput`, `FollowerInput`, `Scans`, `Beliefs`, `RawCasts`, `PolicyDiagnostics`, `Metrics` |
+| observation | runner | `Time`, `Belief`, `ObserverPose`, `LeaderPose`, `LeaderReference`, `BasePosition` |
+| result | `runScenario` | `Config`, `Time`, `ObserverPose`, `LeaderPose`, `ObserverInput`, `LeaderInput`, `Scans`, `Beliefs`, `RawCasts`, `PolicyDiagnostics`, `Metrics` |
 
 **Conventions:**
 - SI units and radians.
@@ -253,9 +254,9 @@ polygon from μ̄.
 | File | Role |
 |---|---|
 | `movingPair.m` | Base scenario: 10 m / 100° FoV, 81 rays, one wall, scripted references, reference policy. Others start from it. |
-| `controlTest.m` | No obstacles; the follower drives toward max range; oracle CBF with zero nominal input. |
-| `boxInFrontOfWall.m` | Compact 2 m layout: a 0.2 m box in front of a wall; the follower crosses the box's shadow; oracle CBF. |
-| `clutteredField.m` | Compact layout with 7 small posts; the follower visits waypoints over 32 s; oracle CBF. |
+| `controlTest.m` | No obstacles; the leader drives toward max range; oracle CBF with zero nominal input. |
+| `boxInFrontOfWall.m` | Compact 2 m layout: a 0.2 m box in front of a wall; the leader crosses the box's shadow; oracle CBF. |
+| `clutteredField.m` | Compact layout with 7 small posts; the leader visits waypoints over 32 s; oracle CBF. |
 | `template.m` | Every configurable field written out with units; copy it to make new scenarios. |
 
 ### `+simulation`: the runner

@@ -1,7 +1,7 @@
 %RUNCLUTTEREDFIELD Run, summarize, and replay the cluttered-field CBF-QP example.
 
 run('startup.m');
-% The follower weaves between small posts; the CBF uses the oracle re-cast boundary.
+% The leader weaves between small posts; the CBF uses the oracle re-cast boundary.
 scenario = scenarios.clutteredField();
 % scenario.Time.Stop = 8;        % default 32 s; shorten for quick checks
 result = simulation.runScenario(scenario);

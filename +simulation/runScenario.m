@@ -15,16 +15,16 @@ time = startTime + (0:intervalCount).' * step;
 time(end) = stopTime;
 
 observerPose = zeros(intervalCount + 1, 3);
-followerPose = zeros(intervalCount + 1, 3);
+leaderPose = zeros(intervalCount + 1, 3);
 observerInput = zeros(intervalCount, 3);
-followerInput = zeros(intervalCount, 3);
+leaderInput = zeros(intervalCount, 3);
 scans = cell(intervalCount + 1, 1);
 beliefs = cell(intervalCount + 1, 1);
 rawCasts = cell(intervalCount + 1, 1);
 policyDiagnostics = cell(intervalCount, 1);
 
 observerPose(1, :) = reshape(double(scenario.Observer.InitialPose), 1, 3);
-followerPose(1, :) = reshape(double(scenario.Follower.InitialPose), 1, 3);
+leaderPose(1, :) = reshape(double(scenario.Leader.InitialPose), 1, 3);
 estimatorConfig = struct( ...
     'NumRays', double(scenario.Sensor.NumRays), ...
     'MaxRange', scenario.Observer.Fov.MaxRange, ...
@@ -47,25 +47,25 @@ for index = 1:intervalCount
         'Time', time(index), ...
         'Belief', beliefs{index}, ...
         'ObserverPose', observerPose(index, :), ...
-        'FollowerPose', followerPose(index, :), ...
+        'LeaderPose', leaderPose(index, :), ...
         'BasePosition', reshape(double(scenario.Base.Position), 1, 2));
     observerReference = simulation.sampleVelocityReference( ...
         scenario.Observer.Reference, time(index));
-    followerReference = simulation.sampleVelocityReference( ...
-        scenario.Follower.Reference, time(index));
-    observation.FollowerReference = followerReference;
+    leaderReference = simulation.sampleVelocityReference( ...
+        scenario.Leader.Reference, time(index));
+    observation.LeaderReference = leaderReference;
     [appliedObserverInput, policyState, policyDiagnostics{index}] = ...
         scenario.Observer.Policy(observation, observerReference, policyState);
     validateInput(appliedObserverInput, 'observer policy output');
     observerInput(index, :) = reshape(double(appliedObserverInput), 1, 3);
-    followerInput(index, :) = followerReference;
+    leaderInput(index, :) = leaderReference;
 
     % Both agents advance from the same held-input snapshot.
     previousObserverPose = observerPose(index, :);
     observerPose(index + 1, :) = simulation.stepPose( ...
         previousObserverPose, observerInput(index, :), step);
-    followerPose(index + 1, :) = simulation.stepPose( ...
-        followerPose(index, :), followerInput(index, :), step);
+    leaderPose(index + 1, :) = simulation.stepPose( ...
+        leaderPose(index, :), leaderInput(index, :), step);
     motion = struct( ...
         'PreviousObserverPose', previousObserverPose, ...
         'CurrentObserverPose', observerPose(index + 1, :), ...
@@ -86,9 +86,9 @@ scenario.SchemaVersion = "checkpoint-1";
 result.Config = scenario;
 result.Time = time;
 result.ObserverPose = observerPose;
-result.FollowerPose = followerPose;
+result.LeaderPose = leaderPose;
 result.ObserverInput = observerInput;
-result.FollowerInput = followerInput;
+result.LeaderInput = leaderInput;
 result.Scans = scans;
 result.Beliefs = beliefs;
 result.RawCasts = rawCasts;
@@ -155,7 +155,7 @@ fovSpec = result.Config.Observer.Fov;
 % filter or controller input.
 for index = 1:sampleCount
     trueVisible(index) = fov.isPointVisible(result.ObserverPose(index, :), ...
-        fovSpec, obstacles, result.FollowerPose(index, 1:2));
+        fovSpec, obstacles, result.LeaderPose(index, 1:2));
 end
 
 for index = 1:sampleCount
@@ -171,7 +171,7 @@ for index = 1:sampleCount
         belief.Mean, belief.OpeningAngle);
     try
         signedDistance(index) = metrics.signedEuclideanDistance( ...
-            boundary, result.FollowerPose(index, 1:2));
+            boundary, result.LeaderPose(index, 1:2));
         isVisible(index) = signedDistance(index) <= 0;
         isValid(index) = true;
     catch exception
@@ -189,8 +189,8 @@ metricLog = struct();
 metricLog.SampledPolygonSignedDistance = signedDistance;
 metricLog.SampledPolygonVisible = isVisible;
 metricLog.IsSampledPolygonValid = isValid;
-metricLog.ObserverFollowerDistance = sqrt(sum((result.ObserverPose(:, 1:2) - ...
-    result.FollowerPose(:, 1:2)) .^ 2, 2));
+metricLog.ObserverLeaderDistance = sqrt(sum((result.ObserverPose(:, 1:2) - ...
+    result.LeaderPose(:, 1:2)) .^ 2, 2));
 metricLog.ObserverBaseDistance = sqrt(sum((result.ObserverPose(:, 1:2) - ...
     basePosition) .^ 2, 2));
 metricLog.PassThroughRangeResidual = rangeResidual;

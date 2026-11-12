@@ -31,7 +31,7 @@ classdef TestSimulation < matlab.unittest.TestCase
             verifyError(testCase, @() simulation.validateScenario(scenario), ...
                 'simulation:validateScenario:UnalignedReference');
             scenario = shortScenario();
-            scenario.Follower.Reference.Values = [0, 0];
+            scenario.Leader.Reference.Values = [0, 0];
             verifyError(testCase, @() simulation.validateScenario(scenario), ...
                 'simulation:validateScenario:InvalidReference');
         end
@@ -59,7 +59,7 @@ classdef TestSimulation < matlab.unittest.TestCase
             second = simulation.runScenario(scenarios.boxInFrontOfWall());
 
             verifyEqual(testCase, first.ObserverPose, second.ObserverPose);
-            verifyEqual(testCase, first.FollowerPose, second.FollowerPose);
+            verifyEqual(testCase, first.LeaderPose, second.LeaderPose);
             verifyEqual(testCase, first.Metrics.TrueVisible, second.Metrics.TrueVisible);
         end
 
@@ -69,13 +69,13 @@ classdef TestSimulation < matlab.unittest.TestCase
 
             verifyEqual(testCase, numel(result.Time), 4);
             verifySize(testCase, result.ObserverPose, [4, 3]);
-            verifySize(testCase, result.FollowerPose, [4, 3]);
+            verifySize(testCase, result.LeaderPose, [4, 3]);
             verifySize(testCase, result.ObserverInput, [3, 3]);
             verifyEqual(testCase, numel(result.Scans), 4);
             verifyEqual(testCase, numel(result.Beliefs), 4);
             verifyEqual(testCase, result.Time(end), 0.3, 'AbsTol', 1e-12);
             verifyEqual(testCase, result.ObserverPose(end, 1), 0.3, 'AbsTol', 1e-12);
-            verifyEqual(testCase, result.FollowerPose(end, 2), -0.7, 'AbsTol', 1e-12);
+            verifyEqual(testCase, result.LeaderPose(end, 2), -0.7, 'AbsTol', 1e-12);
         end
 
         function scanAnglesReconstructRawBoundary(testCase)
@@ -203,25 +203,25 @@ classdef TestSimulation < matlab.unittest.TestCase
             verifyGreaterThan(testCase, result.Metrics.PassThroughRangeResidual(1), 0);
         end
 
-        function runnerProvidesCurrentFollowerReferenceToPolicy(testCase)
+        function runnerProvidesCurrentLeaderReferenceToPolicy(testCase)
             scenario = shortScenario();
-            scenario.Follower.Reference = struct('Times', 0, 'Values', [0.2, -0.1, 0.3]);
-            scenario.Observer.Policy = @captureFollowerReferencePolicy;
+            scenario.Leader.Reference = struct('Times', 0, 'Values', [0.2, -0.1, 0.3]);
+            scenario.Observer.Policy = @captureLeaderReferencePolicy;
             result = simulation.runScenario(scenario);
 
-            verifyEqual(testCase, result.PolicyDiagnostics{1}.FollowerReference, ...
+            verifyEqual(testCase, result.PolicyDiagnostics{1}.LeaderReference, ...
                 [0.2, -0.1, 0.3]);
         end
 
-        function customPolicyCanHoldObserverWhileFollowerMoves(testCase)
+        function customPolicyCanHoldObserverWhileLeaderMoves(testCase)
             scenario = shortScenario();
             scenario.Observer.Policy = @zeroPolicy;
             result = simulation.runScenario(scenario);
 
             verifyEqual(testCase, result.ObserverPose, ...
                 repmat(result.ObserverPose(1, :), numel(result.Time), 1));
-            verifyGreaterThan(testCase, result.FollowerPose(end, 2), ...
-                result.FollowerPose(1, 2));
+            verifyGreaterThan(testCase, result.LeaderPose(end, 2), ...
+                result.LeaderPose(1, 2));
         end
 
         function rejectsChangedAngularGrid(testCase)
@@ -264,7 +264,7 @@ classdef TestSimulation < matlab.unittest.TestCase
             verifyEqual(testCase, findall(groot, 'Type', 'figure'), beforeFigures);
             verifyEqual(testCase, first.Time, second.Time);
             verifyEqual(testCase, first.ObserverPose, second.ObserverPose);
-            verifyEqual(testCase, first.FollowerPose, second.FollowerPose);
+            verifyEqual(testCase, first.LeaderPose, second.LeaderPose);
             verifyEqual(testCase, first.ObserverPose, changedPlayback.ObserverPose);
             verifyEqual(testCase, first.Metrics.SampledPolygonSignedDistance, ...
                 changedPlayback.Metrics.SampledPolygonSignedDistance);
@@ -491,7 +491,7 @@ scenario = scenarios.movingPair();
 scenario.Time.Stop = 0.3;
 scenario.Time.Step = 0.1;
 scenario.Observer.Reference = struct('Times', 0, 'Values', [1, 0, 0]);
-scenario.Follower.Reference = struct('Times', 0, 'Values', [0, 1, 0]);
+scenario.Leader.Reference = struct('Times', 0, 'Values', [0, 1, 0]);
 scenario.Obstacles = struct('Name', {}, 'Vertices', {});
 scenario.Sensor.NumRays = 9;
 end
@@ -513,9 +513,9 @@ input = reference;
 diagnostics = struct('ObservedRange', observation.Belief.Mean(1));
 end
 
-function [input, state, diagnostics] = captureFollowerReferencePolicy(observation, reference, state)
+function [input, state, diagnostics] = captureLeaderReferencePolicy(observation, reference, state)
 input = reference;
-diagnostics = struct('FollowerReference', observation.FollowerReference);
+diagnostics = struct('LeaderReference', observation.LeaderReference);
 end
 
 function estimator = makeBeliefOverride(field, value)
