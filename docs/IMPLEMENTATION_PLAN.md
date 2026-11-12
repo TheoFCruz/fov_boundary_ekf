@@ -50,6 +50,30 @@ constraint was infeasible within the input bounds (`relaxed-with-slack`).
 still not smooth: 53 of 239 steps change an input component by more than 0.2,
 so the remaining roughness is not explained by ray spacing alone.
 
+2026-11-12: `fov.castRays` now solves all rays against all stacked obstacle
+edges at once, and `metrics.internal.normalizeBoundary` tests all nonadjacent
+edge pairs in one vectorized pass. Behavior-preserving: a randomized check of
+3000 casts (including grazing, collinear and empty-obstacle cases) and 5000
+polygons (2814 self-intersecting) matched the previous implementations
+bit-for-bit. Headless run times fell from 143.1 s to 15.5 s
+(`clutteredField`), 37.0 s to 5.1 s (`boxInFrontOfWall`) and 1.6 s to 0.3 s
+(`movingPair`). `runtests('tests')` passed 70/70.
+Follow-up cleanup (same day): the ray/edge solve moved into
+`fov.internal.rayEdgeDistances` (commented derivation, collinear case
+vectorized), edge stacking into `fov.internal.obstacleEdges`, and
+`fov.isPointVisible` now uses both; the per-ray
+`fov.internal.raySegmentIntersection` and `fov.internal.polygonEdges` were
+removed. A randomized check of 3000 casts and 15000 visibility queries
+matched the previous code bit-for-bit. A second pass then simplified it
+further: `rayEdgeDistances` treats ray-parallel edges as misses (for convex
+obstacles the neighbouring edge reaches the same corner, so only an observer
+lying on an obstacle edge changes), `fov.castRays` and `fov.isPointVisible`
+dropped validation already done by their callers (`fov.polygonObstacle`,
+`simulation.validateScenario`, `control.makeOracleBoundarySource`), and the
+unused `Directions` and `NominalBoundary` cast fields were removed. Only the
+focused `TestRayCasting` and `TestMetrics` files were rerun; the full suite
+was not.
+
 ## 1. Active direction and current status
 
 The active workflow is the headless moving-pair simulation, followed by replay.

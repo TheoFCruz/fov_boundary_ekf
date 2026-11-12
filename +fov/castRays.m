@@ -14,106 +14,36 @@ function result = castRays(observer, obstacles, varargin)
 % for a full-circle FOV, it begins and ends at the first sampled endpoint.
 % Its accuracy depends on NumRays.
 
-if nargin < 2
-    error('fov:castRays:InvalidArguments', ...
-        'observer and obstacles are required.');
-end
-
-if ~isa(observer, 'fov.Observer')
-    error('fov:castRays:InvalidObserver', ...
-        'observer must be an fov.Observer object.');
-end
-
+% Callers pass a validated fov.Observer and fov.polygonObstacle structs;
+% scenario validation and the oracle source check NumRays and Tolerance.
 parser = inputParser;
-parser.FunctionName = 'fov.castRays';
 addParameter(parser, 'NumRays', 181);
 addParameter(parser, 'Tolerance', 1e-10);
 parse(parser, varargin{:});
-
 numRays = parser.Results.NumRays;
 tolerance = parser.Results.Tolerance;
 
-if ~(isnumeric(numRays) && isscalar(numRays) && isreal(numRays) && ...
-        isfinite(numRays) && numRays >= 2 && floor(numRays) == numRays)
-    error('fov:castRays:InvalidNumRays', ...
-        'NumRays must be an integer scalar greater than or equal to 2.');
-end
-
-if ~(isnumeric(tolerance) && isscalar(tolerance) && isreal(tolerance) && ...
-        isfinite(tolerance) && tolerance > 0)
-    error('fov:castRays:InvalidTolerance', ...
-        'Tolerance must be a finite positive scalar.');
-end
-
-if ~isempty(obstacles) && ...
-        (~isstruct(obstacles) || ~isfield(obstacles, 'Vertices'))
-    error('fov:castRays:InvalidObstacles', ...
-        'obstacles must be a struct array created by fov.polygonObstacle.');
-end
-for obstacleIndex = 1:numel(obstacles)
-    vertices = obstacles(obstacleIndex).Vertices;
-    if ~(isnumeric(vertices) && isreal(vertices) && size(vertices, 2) == 2 && ...
-            size(vertices, 1) >= 3 && all(isfinite(vertices(:))))
-        error('fov:castRays:InvalidObstacles', ...
-            'Obstacle vertices must be finite N-by-2 polygons with N >= 3.');
-    end
-end
-
-numRays = double(numRays);
-tolerance = double(tolerance);
 rayAngles = fov.sampleRayAngles(observer, numRays);
 directions = [cos(rayAngles), sin(rayAngles)];
-numObstacles = numel(obstacles);
 
-% Obstacles are static during one scan, so build their edge lists once.
-edgeLists = cell(numObstacles, 1);
-for obstacleIndex = 1:numObstacles
-    [edgeLists{obstacleIndex, 1}, edgeLists{obstacleIndex, 2}] = ...
-        fov.internal.polygonEdges(obstacles(obstacleIndex));
-end
+% Distance from the observer along every ray to every obstacle edge
+% (rays-by-edges, Inf on a miss).
+[edgeStarts, edgeEnds, edgeObstacleId] = fov.internal.obstacleEdges(obstacles);
+edgeDistances = fov.internal.rayEdgeDistances( ...
+    observer.Position, directions, edgeStarts, edgeEnds, tolerance);
 
-% Start every ray at the censored range cap and replace it with nearer hits.
+% Each ray stops at its nearest edge if that is strictly inside the range
+% cap. Edges are stacked in obstacle order, so on a tie min picks the
+% lowest obstacle index.
+[nearestDistances, nearestEdges] = min(edgeDistances, [], 2);
 distances = repmat(observer.MaxRange, numRays, 1);
 hitObstacleId = zeros(numRays, 1);
+isReturn = nearestDistances < observer.MaxRange;
+distances(isReturn) = nearestDistances(isReturn);
+hitObstacleId(isReturn) = edgeObstacleId(nearestEdges(isReturn));
 
-% Keep the ray-major loop explicit so nearest-hit ties remain easy to inspect.
-for rayIndex = 1:numRays
-    rayOrigin = observer.Position;
-    rayDirection = directions(rayIndex, :);
-
-    for obstacleIndex = 1:numObstacles
-        edgeStarts = edgeLists{obstacleIndex, 1};
-        edgeEnds = edgeLists{obstacleIndex, 2};
-        edgeDistances = fov.internal.raySegmentIntersection( ...
-            rayOrigin, rayDirection, edgeStarts, edgeEnds, tolerance);
-
-        validHits = isfinite(edgeDistances) & ...
-            edgeDistances <= observer.MaxRange + tolerance;
-        if ~any(validHits)
-            continue;
-        end
-
-        obstacleDistance = min(edgeDistances(validHits));
-        if obstacleDistance < distances(rayIndex)
-            distances(rayIndex) = max(obstacleDistance, 0);
-            hitObstacleId(rayIndex) = obstacleIndex;
-        end
-    end
-end
-
-% Convert nearest ranges back into world endpoints and sampled boundaries.
-endPoints = bsxfun(@plus, observer.Position, ...
-    bsxfun(@times, distances, directions));
-isOccluded = hitObstacleId > 0;
-
-nominalEndPoints = bsxfun(@plus, observer.Position, ...
-    observer.MaxRange * directions);
-
-if observer.OpeningAngle == 2*pi
-    nominalBoundary = [nominalEndPoints; nominalEndPoints(1, :)];
-else
-    nominalBoundary = [observer.Position; nominalEndPoints; observer.Position];
-end
+% World endpoint of every ray.
+endPoints = observer.Position + distances .* directions;
 
 % A depth jump is a change of hit identity between consecutive rays: a
 % different obstacle, or an obstacle next to a no-return. Convex obstacles
@@ -125,22 +55,24 @@ if observer.OpeningAngle ~= 2*pi
 end
 
 % VisibleBoundary steps radially at depth jumps instead of bridging them.
-visibleBoundary = fov.boundaryFromRanges([observer.Position, observer.Heading], ...
-    rayAngles - observer.Heading, distances, observer.OpeningAngle, isDepthJump);
+visibleBoundary = fov.boundaryFromRanges( ...
+    [observer.Position, observer.Heading], ...
+    rayAngles - observer.Heading, ...
+    distances, ...
+    observer.OpeningAngle, ...
+    isDepthJump);
 
 result = struct();
 result.Origin = observer.Position;
 result.RayAngles = rayAngles;
-result.Directions = directions;
 result.Distances = distances;
 result.EndPoints = endPoints;
-result.IsOccluded = isOccluded;
+result.IsOccluded = hitObstacleId > 0;
 result.HitObstacleId = hitObstacleId;
 result.IsDepthJump = isDepthJump;
 result.MaxRange = observer.MaxRange;
 result.OpeningAngle = observer.OpeningAngle;
 result.NumRays = numRays;
 result.Tolerance = tolerance;
-result.NominalBoundary = nominalBoundary;
 result.VisibleBoundary = visibleBoundary;
 end

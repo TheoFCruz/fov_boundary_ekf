@@ -90,9 +90,9 @@ inputs, `Scans`, `Beliefs`, `RawCasts`, `PolicyDiagnostics` and `Metrics`.
 ## 3. Where the oracle ray cast is computed
 
 All true-geometry ray casting goes through one function, **`fov.castRays`**.
-It intersects every ray with every obstacle edge (via
-`fov.internal.raySegmentIntersection`) and keeps the nearest hit, saturated at
-`MaxRange`. Its outputs are:
+It intersects every ray with every obstacle edge in one vectorized
+rays-by-edges solve (`fov.internal.rayEdgeDistances`, whose header derives the
+intersection formulas) and keeps the nearest hit, saturated at `MaxRange`. Its outputs are:
 - per-ray `Distances`, `EndPoints`, `HitObstacleId` (0 = no return);
 - `IsDepthJump` (hit identity changes between neighbouring rays);
 - `VisibleBoundary`, the polygon built by `fov.boundaryFromRanges` with radial
@@ -214,7 +214,7 @@ polygon from μ̄.
 | Reference schedule | scenario | `Times` (breakpoints), `Values` (rows of `[vx, vy, omega]`, held until the next breakpoint) |
 | obstacle | `fov.polygonObstacle` | `Name`, `Vertices` (convex, ordered) |
 | scan | `sensing.raycastScan` | `Time`, `ObserverPose`, `Angles` (relative to heading), `Ranges` (noisy), `HasReturn`, `IsValid`, `MaxRange`, `OpeningAngle` |
-| rawCast | `fov.castRays` | noiseless `Distances`, `EndPoints`, `HitObstacleId`, `IsDepthJump`, `VisibleBoundary`, `NominalBoundary` |
+| rawCast | `fov.castRays` | noiseless `Distances`, `EndPoints`, `HitObstacleId`, `IsDepthJump`, `VisibleBoundary` |
 | belief | `Estimator.Correct` | `Time`, `Angles`, `Mean`, `Covariance`, `IsSupported`, `HasReturn`, `ObserverPose`, `MaxRange`, `OpeningAngle`, `Method` |
 | motion | runner | `PreviousObserverPose`, `CurrentObserverPose`, `AppliedInput` |
 | observation | runner | `Time`, `Belief`, `ObserverPose`, `LeaderPose`, `LeaderReference`, `BasePosition` |
@@ -285,15 +285,15 @@ polygon from μ̄.
 | `castRays.m` | **The oracle ray cast** (§3). Nearest hit per ray, depth-jump flags, `VisibleBoundary`. |
 | `boundaryFromRanges.m` | Ranges plus angles at a pose → closed world polygon. With jump flags: radial steps at jumps and spike collapse. Used by `castRays` (oracle), the policy (frozen belief), metrics and replay. |
 | `isPointVisible.m` | Exact line-of-sight, aperture and range test. Scoring only. |
-| `+internal/polygonEdges.m` | An obstacle's edges as start/end arrays. |
-| `+internal/raySegmentIntersection.m` | Vectorized ray–segment intersection (distance along the ray, or `Inf`). |
+| `+internal/obstacleEdges.m` | All obstacles' edges stacked as start/end arrays, with the owning obstacle index. |
+| `+internal/rayEdgeDistances.m` | Rays-by-edges distance matrix (`Inf` on a miss; ray-parallel edges count as misses). Used by `castRays` and `isPointVisible`. |
 
 ### `+metrics`
 
 | File | Role |
 |---|---|
 | `signedEuclideanDistance.m` | Signed distance from points to a polygon: negative inside, positive outside, zero on the edge. Invalid polygons raise errors. Used for h. |
-| `+internal/normalizeBoundary.m` | Closes and validates a polygon (degenerate or self-intersecting → error). |
+| `+internal/normalizeBoundary.m` | Closes and validates a polygon (degenerate or self-intersecting → error); all nonadjacent edge pairs are tested in one vectorized pass. |
 | `+internal/pointToSegments.m` | Closest point and distance to a set of segments. |
 
 ### `+estimation`

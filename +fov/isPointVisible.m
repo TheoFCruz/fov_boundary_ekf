@@ -10,35 +10,8 @@ function visible = isPointVisible(observerPose, fovSpec, obstacles, point, toler
 % and metrics, not a filter or controller input; do not route it into the
 % estimator or policy seams.
 
-if nargin < 4
-    error('fov:isPointVisible:InvalidArguments', ...
-        'observerPose, fovSpec, obstacles, and point are required.');
-end
-if nargin < 5 || isempty(tolerance)
+if nargin < 5
     tolerance = 1e-10;
-end
-
-if ~(isnumeric(observerPose) && isreal(observerPose) && ...
-        numel(observerPose) == 3 && all(isfinite(observerPose(:))))
-    error('fov:isPointVisible:InvalidPose', ...
-        'observerPose must contain three finite real numeric values.');
-end
-if ~isa(fovSpec, 'fov.FovSpec')
-    error('fov:isPointVisible:InvalidFov', 'fovSpec must be an fov.FovSpec object.');
-end
-if ~isempty(obstacles) && (~isstruct(obstacles) || ~isfield(obstacles, 'Vertices'))
-    error('fov:isPointVisible:InvalidObstacles', ...
-        'obstacles must be a struct array created by fov.polygonObstacle.');
-end
-if ~(isnumeric(point) && isreal(point) && numel(point) == 2 && ...
-        all(isfinite(point(:))))
-    error('fov:isPointVisible:InvalidPoint', ...
-        'point must contain two finite real numeric values.');
-end
-if ~(isnumeric(tolerance) && isscalar(tolerance) && isreal(tolerance) && ...
-        isfinite(tolerance) && tolerance > 0)
-    error('fov:isPointVisible:InvalidTolerance', ...
-        'tolerance must be a finite positive scalar.');
 end
 
 observerPose = reshape(double(observerPose), 1, 3);
@@ -64,15 +37,9 @@ if distance <= tolerance
     return;
 end
 
-% Occlusion: blocked only if an edge crosses the segment before the point.
-for obstacleIndex = 1:numel(obstacles)
-    [edgeStarts, edgeEnds] = fov.internal.polygonEdges(obstacles(obstacleIndex));
-    hitDistances = fov.internal.raySegmentIntersection(observerPose(1:2), ...
-        offset, edgeStarts, edgeEnds, tolerance);
-    if any(isfinite(hitDistances) & hitDistances < distance - tolerance)
-        visible = false;
-        return;
-    end
-end
-visible = true;
+% Occlusion: blocked only if an edge crosses the sight line before the point.
+[edgeStarts, edgeEnds] = fov.internal.obstacleEdges(obstacles);
+hitDistances = fov.internal.rayEdgeDistances( ...
+    observerPose(1:2), offset, edgeStarts, edgeEnds, tolerance);
+visible = ~any(hitDistances < distance - tolerance);
 end
