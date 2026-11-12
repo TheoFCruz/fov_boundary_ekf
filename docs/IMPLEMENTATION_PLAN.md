@@ -28,7 +28,9 @@ The oracle predictor is the baseline: scenario factories and
 `scripts/runMovingPair.m` wrap the new `fov.visibleBoundaryAt` (a single
 noiseless `fov.castRays` at the queried pose), replacing
 `control.makeOracleBoundarySource`. The methodology's predictor (transport of
-mean and covariance to the queried pose, then `V_eps`) has a placeholder,
+the belief mean to the queried pose, then the polygon from the predicted
+mean; `docs/metodologia.pdf` uses the expected boundary, not a confidence
+bound) has a placeholder,
 `estimation.predictBoundaryByTransport`, which errors until implemented.
 Invalid-geometry fallbacks now report `invalid-geometry-fallback`, and the
 `BoundarySource` diagnostics field was dropped.

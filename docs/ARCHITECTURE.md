@@ -196,8 +196,10 @@ The runner never calls it. Only the CBF policy does, from its config.
   change `scenario.Obstacles`, `Observer.Fov` or `Sensor.NumRays`, rebuild
   the policy (see `+scenarios/template.m`). It must never reach an estimator.
 - **Methodology transport:** `estimation.predictBoundaryByTransport` is a
-  placeholder that errors. It will transport the belief mean and covariance
-  to `pose` and return the confidence polygon `V_ε`.
+  placeholder that errors. It will transport the belief mean to `pose`
+  (`docs/metodologia.pdf` §1.2) and return the polygon built from the
+  predicted mean. The barrier uses the expected boundary, not a confidence
+  bound such as μ − κσ (§1.4).
 
 ### How the methodology's sources map onto the slots
 
@@ -308,7 +310,7 @@ the policy calls the predictor with hypothetical displacements.
 | File | Role |
 |---|---|
 | `makePassThroughEstimator.m` | `Initialize`/`Predict`/`Correct` handles; belief = latest scan, zero covariance, no-op predict. The EKF will be a sibling `make...Estimator`. |
-| `predictBoundaryByTransport.m` | Placeholder for the methodology boundary predictor (transport, then `V_ε`); errors until implemented. |
+| `predictBoundaryByTransport.m` | Placeholder for the methodology boundary predictor (mean transport, then the polygon from the predicted mean); errors until implemented. |
 
 ### `+control`
 
