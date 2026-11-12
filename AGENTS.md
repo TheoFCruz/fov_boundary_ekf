@@ -184,6 +184,12 @@ controller.
   structure. Explain frames, equations, why, or teaching configuration; do not
   narrate obvious assignments, loops, plotting calls, or validation predicates.
   Keep blank lines between major stages.
+- Keep a line whole when it fits (about 90 columns). When it does not, break
+  at logical terms rather than wherever the column runs out: one operand per
+  line with the operator leading (`& t >= -tolerance ...`), and call
+  arguments on a fresh line after `name( ...`, or one argument per line when
+  they still do not fit. Never split inside a sub-expression; prefer a named
+  intermediate when a term is itself long.
 - Keep scripts thin; reusable plotting belongs in `+viz` and reusable
   computation in the owning package. Before deleting checks, fields,
   parameters, placeholders, or files, check repository/external consumers and

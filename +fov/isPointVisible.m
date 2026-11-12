@@ -39,7 +39,7 @@ end
 
 % Occlusion: blocked only if an edge crosses the sight line before the point.
 [edgeStarts, edgeEnds] = fov.internal.obstacleEdges(obstacles);
-hitDistances = fov.internal.rayEdgeDistances(observerPose(1:2), offset, ...
-    edgeStarts, edgeEnds, tolerance);
+hitDistances = fov.internal.rayEdgeDistances( ...
+    observerPose(1:2), offset, edgeStarts, edgeEnds, tolerance);
 visible = ~any(hitDistances < distance - tolerance);
 end

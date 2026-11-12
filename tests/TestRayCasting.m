@@ -104,9 +104,11 @@ classdef TestRayCasting < matlab.unittest.TestCase
             observer = fov.Observer([0, 0], 0, 10, pi/2);
             emptyObstacles = struct('Name', {}, 'Vertices', {});
             result = fov.castRays(observer, emptyObstacles, 'NumRays', 11);
-            expected = fov.boundaryFromRanges([observer.Position, ...
-                observer.Heading], result.RayAngles - observer.Heading, ...
-                result.Distances, observer.OpeningAngle);
+            expected = fov.boundaryFromRanges( ...
+                [observer.Position, observer.Heading], ...
+                result.RayAngles - observer.Heading, ...
+                result.Distances, ...
+                observer.OpeningAngle);
 
             verifyFalse(testCase, any(result.IsDepthJump));
             verifyEqual(testCase, result.VisibleBoundary, expected, 'AbsTol', 1e-12);
@@ -119,7 +121,8 @@ classdef TestRayCasting < matlab.unittest.TestCase
             result = fov.castRays(observer, [box, wall], 'NumRays', 13);
 
             jumpPairs = find(result.IsDepthJump);
-            jumpIdentityPairs = [result.HitObstacleId(jumpPairs), ...
+            jumpIdentityPairs = [ ...
+                result.HitObstacleId(jumpPairs), ...
                 result.HitObstacleId(jumpPairs + 1)];
             verifyNotEmpty(testCase, jumpPairs);
             verifyTrue(testCase, any(all(sort(jumpIdentityPairs, 2) == [1, 2], 2)), ...
@@ -143,28 +146,40 @@ classdef TestRayCasting < matlab.unittest.TestCase
             angles = deg2rad([0; 10; 20; 30]);
             unit = [cos(angles), sin(angles)];
 
-            boundary = fov.boundaryFromRanges([0, 0, 0], angles, [3; 3; 5; 5], ...
-                pi/2, [false; true; false]);
+            boundary = fov.boundaryFromRanges( ...
+                [0, 0, 0], angles, [3; 3; 5; 5], pi/2, [false; true; false]);
 
-            expected = [0, 0; 3 * unit(1, :); 3 * unit(2, :); 3 * unit(3, :); ...
-                5 * unit(3, :); 5 * unit(4, :); 0, 0];
+            expected = [
+                0, 0
+                3 * unit(1, :)
+                3 * unit(2, :)
+                3 * unit(3, :)
+                5 * unit(3, :)
+                5 * unit(4, :)
+                0, 0];
             verifyEqual(testCase, boundary, expected, 'AbsTol', 1e-12);
-            verifyLessThan(testCase, metrics.signedEuclideanDistance( ...
-                boundary, [2, 0.5]), 0);
+            verifyLessThan(testCase, ...
+                metrics.signedEuclideanDistance(boundary, [2, 0.5]), 0);
         end
 
         function insertsStepVertexAtFarToNearJump(testCase)
             angles = deg2rad([0; 10; 20; 30]);
             unit = [cos(angles), sin(angles)];
 
-            boundary = fov.boundaryFromRanges([0, 0, 0], angles, [5; 5; 3; 3], ...
-                pi/2, [false; true; false]);
+            boundary = fov.boundaryFromRanges( ...
+                [0, 0, 0], angles, [5; 5; 3; 3], pi/2, [false; true; false]);
 
-            expected = [0, 0; 5 * unit(1, :); 5 * unit(2, :); 3 * unit(2, :); ...
-                3 * unit(3, :); 3 * unit(4, :); 0, 0];
+            expected = [
+                0, 0
+                5 * unit(1, :)
+                5 * unit(2, :)
+                3 * unit(2, :)
+                3 * unit(3, :)
+                3 * unit(4, :)
+                0, 0];
             verifyEqual(testCase, boundary, expected, 'AbsTol', 1e-12);
-            verifyLessThan(testCase, metrics.signedEuclideanDistance( ...
-                boundary, [2, 0.5]), 0);
+            verifyLessThan(testCase, ...
+                metrics.signedEuclideanDistance(boundary, [2, 0.5]), 0);
         end
 
         function collapsesFarApertureEdgeRayInsteadOfSpike(testCase)
@@ -172,13 +187,13 @@ classdef TestRayCasting < matlab.unittest.TestCase
             angles = deg2rad([0; 10; 20]);
             unit = [cos(angles), sin(angles)];
 
-            boundary = fov.boundaryFromRanges([0, 0, 0], angles, [5; 3; 3], ...
-                pi/2, [true; false]);
+            boundary = fov.boundaryFromRanges( ...
+                [0, 0, 0], angles, [5; 3; 3], pi/2, [true; false]);
 
             expected = [0, 0; 3 * unit; 0, 0];
             verifyEqual(testCase, boundary, expected, 'AbsTol', 1e-12);
-            verifyLessThan(testCase, metrics.signedEuclideanDistance( ...
-                boundary, [2, 0.2]), 0);
+            verifyLessThan(testCase, ...
+                metrics.signedEuclideanDistance(boundary, [2, 0.2]), 0);
         end
 
         function collapsesIsolatedFarRayInsteadOfSpike(testCase)
@@ -186,14 +201,20 @@ classdef TestRayCasting < matlab.unittest.TestCase
             angles = deg2rad([0; 10; 20; 30]);
             unit = [cos(angles), sin(angles)];
 
-            boundary = fov.boundaryFromRanges([0, 0, 0], angles, [3; 6; 4; 4], ...
-                pi/2, [true; true; false]);
+            boundary = fov.boundaryFromRanges( ...
+                [0, 0, 0], angles, [3; 6; 4; 4], pi/2, [true; true; false]);
 
-            expected = [0, 0; 3 * unit(1, :); 3 * unit(2, :); 4 * unit(2, :); ...
-                4 * unit(3, :); 4 * unit(4, :); 0, 0];
+            expected = [
+                0, 0
+                3 * unit(1, :)
+                3 * unit(2, :)
+                4 * unit(2, :)
+                4 * unit(3, :)
+                4 * unit(4, :)
+                0, 0];
             verifyEqual(testCase, boundary, expected, 'AbsTol', 1e-12);
-            verifyLessThan(testCase, metrics.signedEuclideanDistance( ...
-                boundary, [2, 0.5]), 0);
+            verifyLessThan(testCase, ...
+                metrics.signedEuclideanDistance(boundary, [2, 0.5]), 0);
         end
 
         function omittedOrEmptyIsJumpReproducesOriginalConstruction(testCase)
@@ -202,10 +223,10 @@ classdef TestRayCasting < matlab.unittest.TestCase
             openingAngle = pi/2;
             observerPose = [0, 0, 0];
 
-            withoutArgument = fov.boundaryFromRanges(observerPose, angles, ...
-                ranges, openingAngle);
-            withEmptyFlags = fov.boundaryFromRanges(observerPose, angles, ...
-                ranges, openingAngle, false(1, 0).');
+            withoutArgument = fov.boundaryFromRanges( ...
+                observerPose, angles, ranges, openingAngle);
+            withEmptyFlags = fov.boundaryFromRanges( ...
+                observerPose, angles, ranges, openingAngle, false(1, 0).');
 
             verifySize(testCase, withoutArgument, [4, 2]);
             verifyEqual(testCase, withEmptyFlags, withoutArgument, 'AbsTol', 1e-12);
@@ -214,8 +235,8 @@ classdef TestRayCasting < matlab.unittest.TestCase
         function rejectsMismatchedIsJumpLength(testCase)
             angles = [0; deg2rad(10); deg2rad(20)];
             ranges = [3; 5; 5];
-            verifyError(testCase, @() fov.boundaryFromRanges([0, 0, 0], ...
-                angles, ranges, pi/2, true(3, 1)), ...
+            verifyError(testCase, ...
+                @() fov.boundaryFromRanges([0, 0, 0], angles, ranges, pi/2, true(3, 1)), ...
                 'fov:boundaryFromRanges:InvalidIsJump');
         end
 
@@ -226,13 +247,13 @@ classdef TestRayCasting < matlab.unittest.TestCase
 
             verifyTrue(testCase, fov.isPointVisible(pose, spec, wall, [2, 0]));
             verifyFalse(testCase, fov.isPointVisible(pose, spec, wall, [5, 0]));
-            verifyFalse(testCase, fov.isPointVisible(pose, spec, wall, ...
-                10 * [cos(deg2rad(80)), sin(deg2rad(80))]));
+            outsideAperture = 10 * [cos(deg2rad(80)), sin(deg2rad(80))];
+            verifyFalse(testCase, fov.isPointVisible(pose, spec, wall, outsideAperture));
             verifyFalse(testCase, fov.isPointVisible(pose, spec, wall, [11, 0]));
 
             fullCircleSpec = fov.FovSpec(10, 2*pi);
-            verifyTrue(testCase, fov.isPointVisible(pose, fullCircleSpec, ...
-                wall, [-3, 0]));
+            verifyTrue(testCase, ...
+                fov.isPointVisible(pose, fullCircleSpec, wall, [-3, 0]));
         end
     end
 end
