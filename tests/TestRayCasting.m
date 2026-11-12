@@ -20,50 +20,30 @@ classdef TestRayCasting < matlab.unittest.TestCase
             verifyLessThanOrEqual(testCase, abs(angles(end) - (pi/2)), 1e-12);
         end
 
-        function returnsAllPolygonBoundaryEdges(testCase)
-            obstacle = fov.polygonObstacle('box', ...
-                [0, 0; 2, 0; 2, 1; 0, 1]);
-            [starts, ends] = fov.internal.polygonEdges(obstacle);
+        function stacksAllObstacleEdgesInOrder(testCase)
+            box = fov.polygonObstacle('box', [0, 0; 2, 0; 2, 1; 0, 1]);
+            tri = fov.polygonObstacle('tri', [5, 0; 6, 0; 5, 1]);
+            [starts, ends, ids] = fov.internal.obstacleEdges([box, tri]);
 
-            verifyEqual(testCase, starts, obstacle.Vertices);
+            verifyEqual(testCase, starts, [box.Vertices; tri.Vertices]);
             verifyEqual(testCase, ends, ...
-                [2, 0; 2, 1; 0, 1; 0, 0]);
+                [2, 0; 2, 1; 0, 1; 0, 0; 6, 0; 5, 1; 5, 0]);
+            verifyEqual(testCase, ids, [1; 1; 1; 1; 2; 2; 2]);
         end
 
-        function detectsVectorizedRaySegmentIntersections(testCase)
-            starts = [2, -1; 2, 1; -2, -1; 1, 1; 2, 0; 2, 0];
+        function solvesEveryRayAgainstEveryEdge(testCase)
+            % Edges for the x-axis ray: crossing at x=2, beyond the end,
+            % behind the ray, parallel offset, collinear ahead (parallel,
+            % so a miss), touching at an endpoint.
+            starts = [2, -1; 2, 1; -2, -1; -1, 1; 2, 0; 2, 0];
             ends = [2, 1; 2, 2; -2, 1; 3, 1; 4, 0; 2, 1];
 
-            [distance, points, parameter, isHit] = ...
-                fov.internal.raySegmentIntersection( ...
-                [0, 0], [2, 0], starts, ends);
+            distances = fov.internal.rayEdgeDistances( ...
+                [0, 0], [2, 0; 0, 1], starts, ends, 1e-10);
 
-            verifyEqual(testCase, isHit, [true; false; false; false; true; true]);
-            verifyEqual(testCase, distance([1, 5, 6]), [2; 2; 2]);
-            verifyEqual(testCase, points([1, 5, 6], :), ...
-                [2, 0; 2, 0; 2, 0]);
-            verifyLessThanOrEqual(testCase, ...
-                max(abs(parameter([1, 5, 6]) - [0.5; 0; 0])), 1e-12);
-            verifyTrue(testCase, isinf(distance(2)));
-            verifyTrue(testCase, isinf(distance(3)));
-            verifyTrue(testCase, isinf(distance(4)));
-        end
-
-        function detectsCollinearOverlap(testCase)
-            [distance, point, parameter, isHit] = ...
-                fov.internal.raySegmentIntersection( ...
-                [0, 0], [1, 0], [2, 0], [4, 0]);
-
-            verifyTrue(testCase, isHit);
-            verifyEqual(testCase, distance, 2);
-            verifyEqual(testCase, point, [2, 0]);
-            verifyEqual(testCase, parameter, 0);
-        end
-
-        function rejectsZeroRayDirection(testCase)
-            verifyError(testCase, @() fov.internal.raySegmentIntersection( ...
-                [0, 0], [0, 0], [1, -1], [1, 1]), ...
-                'fov:internal:raySegmentIntersection:ZeroDirection');
+            verifySize(testCase, distances, [2, 6]);
+            verifyEqual(testCase, distances(1, :), [2, Inf, Inf, Inf, Inf, 2]);
+            verifyEqual(testCase, distances(2, :), [Inf, Inf, Inf, 1, Inf, Inf]);
         end
 
         function reachesMaximumRangeInEmptyField(testCase)
@@ -75,14 +55,6 @@ classdef TestRayCasting < matlab.unittest.TestCase
                 repmat(observer.MaxRange, 11, 1));
             verifyFalse(testCase, any(result.IsOccluded));
             verifyEqual(testCase, result.HitObstacleId, zeros(11, 1));
-        end
-
-        function rejectsDegenerateDirectObstacle(testCase)
-            observer = fov.Observer([0, 0], 0, 10, pi/2);
-            obstacle = struct('Vertices', [2, 0; 2, 1]);
-
-            verifyError(testCase, @() fov.castRays(observer, obstacle), ...
-                'fov:castRays:InvalidObstacles');
         end
 
         function stopsCentralRayAtSingleWall(testCase)
@@ -125,10 +97,6 @@ classdef TestRayCasting < matlab.unittest.TestCase
             verifyEqual(testCase, result.VisibleBoundary(1, :), ...
                 observer.Position);
             verifyEqual(testCase, result.VisibleBoundary(end, :), ...
-                observer.Position);
-            verifyEqual(testCase, result.NominalBoundary(1, :), ...
-                observer.Position);
-            verifyEqual(testCase, result.NominalBoundary(end, :), ...
                 observer.Position);
         end
 

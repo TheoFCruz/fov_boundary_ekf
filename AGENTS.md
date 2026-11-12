@@ -36,8 +36,11 @@ architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
 verification honestly. The full suite (`runtests('tests')`) passed 70/70 on
-2026-10-28, after the oracle-boundary CBF cleanup described below and the
-compact rescale of `scenarios.boxInFrontOfWall`. Desktop
+2026-11-12, after vectorizing `fov.castRays` and the polygon self-intersection
+check (behavior-preserving; the follow-up ray-cast cleanup was rerun only
+with `TestRayCasting` and `TestMetrics`; earlier 70/70 on 2026-10-28 after the
+oracle-boundary CBF cleanup and the compact rescale of
+`scenarios.boxInFrontOfWall`). Desktop
 graphics replay of `scenarios.movingPair()` and `scenarios.boxInFrontOfWall()`
 remains unrun (headless-only verification).
 

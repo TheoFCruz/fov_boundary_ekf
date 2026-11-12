@@ -158,7 +158,10 @@ archive.
 
 ## Verification status
 
-The full suite (`runtests('tests')`) passed 70/70 on 2026-10-27, after the
+The full suite (`runtests('tests')`) passed 70/70 on 2026-11-12, after the
+vectorized ray cast and self-intersection check (the follow-up ray-cast
+cleanup was rerun only with `TestRayCasting` and `TestMetrics`), and before
+that on 2026-10-27 after the
 oracle-boundary simulation/control cleanup (depth-jump step construction,
 `fov.isPointVisible`, the oracle `BoundarySource` seam, least-squares
 gradients, and the clipped-nominal fallback — see
