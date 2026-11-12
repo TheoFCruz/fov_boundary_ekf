@@ -252,9 +252,11 @@ function [observerGradient, targetGradient, observerSampleCount, quality] = ...
 %
 % Perturbations are scaled to the sensor's own angular grid (dtheta) so the
 % gradient sees the geometry, not the sampled-polygon's sub-beam artifacts.
+% Steps follow the methodology (eq. 12): delta_psi = dtheta and
+% delta_x = delta_y = |y - p| * dtheta, about one beam spacing at the target.
 
 dtheta = mean(diff(beliefAngles));
-rangeToTarget = max(norm(targetPosition(:) - observerPose(1:2)), 1);
+rangeToTarget = norm(targetPosition(:) - observerPose(1:2));
 axisSteps = [rangeToTarget * dtheta; rangeToTarget * dtheta; dtheta];
 multiples = config.GradientBeamMultiples;
 
