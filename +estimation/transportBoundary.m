@@ -60,7 +60,7 @@ transportedPoints = (oldPoints - deltaP.') * rot2(-deltaPsi).';
 rho = hypot(transportedPoints(:, 1), transportedPoints(:, 2));
 phi = atan2(transportedPoints(:, 2), transportedPoints(:, 1));
 % Range-derivative tilt angle (eq. 4), used only by the eq. 7 jump test.
-alpha = wrapToPi(angles - deltaPsi - phi);
+alpha = wrapAngle(angles - deltaPsi - phi);
 sigma2 = (cos(alpha) .^ 2) .* diagCovOld;
 
 % --- Classify each old neighbouring pair (eq. 7) ---
@@ -135,13 +135,17 @@ for n = 1:numel(fillIndices)
     k = filledIndices(nearestPosition);
 
     % The neighbour on the covered side of k (away from the uncovered beam)
-    % continues the same surface, if it is also a blended return.
+    % continues the same surface if it is also a blended return and passes
+    % the eq. 7 range test (mean only here, so without the variance term).
     if angles(k) < thetaI
         neighborIndex = k - 1;
     else
         neighborIndex = k + 1;
     end
-    hasNeighbor = neighborIndex >= 1 && neighborIndex <= numBeams && isBlend(neighborIndex);
+    hasNeighbor = neighborIndex >= 1 && neighborIndex <= numBeams ...
+        && isBlend(neighborIndex) ...
+        && abs(meanNew(k) - meanNew(neighborIndex)) <= max(params.JumpThreshold, ...
+            params.JumpRelative * min(meanNew(k), meanNew(neighborIndex)));
 
     candidateRange = meanNew(k);
     if hasNeighbor
@@ -194,8 +198,8 @@ function z = cross2(a, b)
 z = a(1) * b(2) - a(2) * b(1);
 end
 
-function wrapped = wrapToPi(angle)
-%WRAPTOPI Wrap an angle (rad) to (-pi, pi], without the Mapping Toolbox.
+function wrapped = wrapAngle(angle)
+%WRAPANGLE Wrap an angle (rad) to [-pi, pi).
 
 wrapped = mod(angle + pi, 2 * pi) - pi;
 end
