@@ -116,7 +116,12 @@ entry points include `simulation.runScenario`, `sensing.raycastScan`,
   an obstacle at maximum range and is not initially a Gaussian equality.
   `IsSupported` means only that a direction has justified boundary information;
   it does not certify a physical return or visibility between rays. Do not
-  fabricate a closed visible polygon from unsupported geometry.
+  fabricate a closed visible polygon from unsupported geometry. The one
+  exception is the transport predictor (`estimation.predictBoundaryByTransport`):
+  its polygon, built from the predicted mean on every beam including the
+  unsupported disoccluded and newly explored hypotheses, is a predicted
+  boundary for the CBF gradient, not a visibility claim
+  (`docs/matlab-implementation-plan.md`, section 4.10).
 - Raw casts are oracle data for simulation, evaluation, and rendering only.
 - Preserve the signed-distance convention: negative inside, positive outside,
   and zero on the boundary, exact only for the sampled polygon.

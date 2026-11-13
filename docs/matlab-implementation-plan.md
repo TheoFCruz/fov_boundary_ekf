@@ -4,6 +4,16 @@ This plan is meant to be handed to a Claude Code session working inside Theo's e
 
 Revised 2026-11-12 to match the updated methodology: the controller uses the **expected** boundary (the filter mean), not a confidence bound `μ − κσ`, and disocclusions use the free-space hypothesis η (eq. 11) instead of a prior matched to a confidence level. There is no `B_ε`/`V_ε` anywhere in the pipeline.
 
+Decisions settled with Theo on 2026-11-12, before stage 1 (details in the sections cited):
+
+- **No-return beams** are free space up to R, never a wall: they stay at the cap after transport, a pair with one return and one no-return is always a jump, and a no-return beam is never the near surface of an edge (4.9).
+- **Disocclusion variance**: keep the PDF's `(r_far − s)²/12 + q_0` for now; it may be revisited after stage 6 (4.6).
+- **Gradient steps**: the samples at displaced poses use only the transported mean, which is exact geometry, so steps of one or two beam spacings are fine; the small-step condition only limits the linearised F and Q (7.2).
+- **Jump threshold**: start with τ plus the relative term (8 % of the nearer range); a slope-aware test comes later (4.2).
+- **Support**: hypothesis beams (disoccluded, newly explored) stay unsupported, but the transport predictor builds its polygon from the mean on every beam (4.10).
+- **State grid**: one state bin per ray (equal scan and belief grids); the sparse extension enters as a measurement mask (10).
+- **Baseline η = 0.5**; η = 0 is source (iv) (11).
+
 The only other file the code session needs is the methodology PDF. Everything else it needs (default numbers from the earlier prototype, the sparse-LiDAR pitfalls) is summarised in this plan.
 
 ---
@@ -86,7 +96,7 @@ Watch for: angle wrapping of φ_j; beams whose old endpoint is at R because ther
 
 ### 4.2 Jump (edge) test between old neighbours (eq. 7)
 
-For each consecutive old pair (j, j+1), decide whether they belong to the same surface: |ρ_a − ρ_b| ≤ max(τ, 3·√(σ_a² + σ_b²)), with σ_j² = cos²α_j Σ_jj (the old variances projected onto range). The uncertainty term keeps noise from splitting a surface into false edges; this is why the mean prediction needs Σ even though the barrier does not. For source (ii), which has no covariance, only τ applies. An optional relative term (8 % of the nearer range) can be added as a parameter. Reasonable starting value: τ = 0.35 m. Store the result as a boolean per pair; it drives everything else.
+For each consecutive old pair (j, j+1), decide whether they belong to the same surface: |ρ_a − ρ_b| ≤ max(τ, 3·√(σ_a² + σ_b²)), with σ_j² = cos²α_j Σ_jj (the old variances projected onto range). The uncertainty term keeps noise from splitting a surface into false edges; this is why the mean prediction needs Σ even though the barrier does not. For source (ii), which has no covariance, only τ applies. The baseline replaces τ by max(τ, 0.08·min(ρ_a, ρ_b)), a relative term of 8 % of the nearer range, so that grazing surfaces far away are not split into false edges; keep both numbers as parameters. A slope-aware test (comparing against the range change the local slope predicts) comes later, after this one is tested in S3. Reasonable starting value: τ = 0.35 m. Store the result as a boolean per pair; it drives everything else.
 
 ### 4.3 Resampling onto the fixed beams (blend, eqs. 2 and 5)
 
@@ -112,7 +122,7 @@ After motion, several pairs can bracket the same new beam (a near surface slidin
 
 A beam with t_i ≥ 0 crosses seen-free space up to s_i and then enters a region no earlier reading saw. The conservative estimate μ̄_i = s_i would cancel the gradient (the seen-free set is fixed in the world, so the leader's distance to it does not change as the observer moves). Use the free-space hypothesis instead, a constant fraction η ∈ [0, 1] of the interval between the seen-free limit and the background:
 
-- μ̄_i = s_i + η (r_far,i − s_i), σ̄_i² = (r_far,i − s_i)²/12 + q_0;
+- μ̄_i = s_i + η (r_far,i − s_i), σ̄_i² = (r_far,i − s_i)²/12 + q_0 (the PDF's variance, kept for now; revisit after stage 6 if the first-measurement innovations say otherwise);
 - r_far,i is the background range along the new beam, found by extending the far surface: the intersection of the beam with the line through the transported points f and f′ (f's neighbour on the same surface), or ρ_f if f has no valid neighbour. Cap s_i at r_far,i;
 - the F row is zero (the element starts with no cross-covariance), since **c**×**d** does not depend on μ_n.
 
@@ -131,8 +141,14 @@ The linearisation assumes that per step, ‖Δp‖/ρ + |Δψ| is at most about 
 ### 4.9 Covariance and housekeeping
 
 - Σ̄ = F Σ Fᵀ + Q, kept full (interpolation correlates neighbouring beams; treating them as independent would artificially shrink the variance). Symmetrise after every operation; check positive semi-definiteness in debug mode.
-- Clamp means to [0, R]. Decide explicitly how no-return beams (μ near R) take part in the jump test and the shadow construction: an endpoint at R is "free space up to R", not a wall. The safest first version treats them as a surface at R and checks in a scenario with open space that nothing absurd happens at the sector's far edge.
+- Clamp means to [0, R]. No-return beams (`HasReturn = false`) mean "free space up to R", not a wall at R. Decided rule: a no-return beam is not transported as an endpoint; it stays at the cap R after transport. A pair with one return and one no-return is always a jump, so no surface is interpolated toward the cap. A no-return beam is never the near surface of an edge: it creates no corner and no shadow. Check in S1 that nothing absurd happens at the sector's far edge.
 - Validate F numerically: perturb each μ_j slightly, rerun the mean prediction, and compare the finite-difference column with F (excluding beams whose label changed). This test caught a missing slope term in the prototype and should be a permanent unit test.
+
+### 4.10 Support and the predicted polygon
+
+`IsSupported` stays honest: it is true only for beams backed by a measurement or by interpolation within one surface. Disoccluded and newly explored beams carry a hypothesis, not evidence, so they keep `IsSupported = false` until measured, and the per-beam label says which hypothesis they hold. With dense scans every step, `Correct` measures them right after `Predict`, so the posterior is unaffected; the label matters for the prior, for sparse sensing, and for the predictor.
+
+The CBF gradient needs exactly those hypothesis beams (it is what eq. 11 is for), so the transport predictor (`estimation.predictBoundaryByTransport`) builds its polygon from the predicted mean on **every** beam, ignoring the support gate. That polygon is a predicted boundary for the gradient, not a visibility claim. Everywhere else (metrics, replay, the estimator's own outputs) the rule stands: no closed polygon from unsupported geometry. The polygon construction will need an explicit option for this; its default stays support-gated.
 
 ---
 
@@ -165,7 +181,7 @@ h(**q**, **b**) = −d(ỹ, V(**b**)) − m, with ỹ = R(−ψ)(**y** − **p**
 
 There is no map, so h cannot be differentiated analytically with respect to the observer's motion. The methodology's choice: for each pose axis e ∈ {x, y, ψ} and ℓ ∈ {1, 2}, transport μ_k to the displaced pose **q**_k ± ℓδ_e**e**_e with the prediction model, rebuild the polygon from the predicted mean μ̄^(e,±ℓ), and evaluate h^(e,±ℓ). The gradient component is the least-squares fit of the central differences, g_e = Σ_ℓ ℓ(h^(e,+ℓ) − h^(e,−ℓ)) / (2δ_e Σ_ℓ ℓ²), with steps of the order of the beam spacing: δ_ψ = Δθ, δ_x = δ_y = ‖**y** − **p**_k‖Δθ.
 
-Smaller steps would capture the steps of the sampled polygon; with steps of this size, g_k approximates the gradient of a version of h smoothed at the scale of one beam. Because each sample uses the predicted mean, g_k approximates, to first order, the gradient of the expected barrier under the prediction model, including the free-space hypothesis behind obstacles. The predicted covariance could weight the fit (e.g. by the inverse linearised variance of each h sample); that is an extension.
+Smaller steps would capture the steps of the sampled polygon; with steps of this size, g_k approximates the gradient of a version of h smoothed at the scale of one beam. Because each sample uses the predicted mean, g_k approximates, to first order, the gradient of the expected barrier under the prediction model, including the free-space hypothesis behind obstacles. The samples use only the transported mean, never the linearised covariance: mean transport is exact geometry (move the endpoints, resample within surfaces), so the small-step condition of 4.8, which limits F and Q, does not limit the gradient steps, even at ℓ = 2 for a distant target. The predicted covariance could weight the fit (e.g. by the inverse linearised variance of each h sample); that is an extension.
 
 ∂h/∂t = ∇_**y** h · **ẏ**, from the leader's known velocity, evaluated on μ_k.
 
@@ -266,7 +282,7 @@ Monte Carlo over seeds for each scenario × gradient source × η × reading res
 - Ablations: no slope term in F; diagonal Σ; naive interpolation across jumps; corner at the near or far beam instead of mid-beam; no disocclusion rule (beam gets the newly explored prior instead); no gating; correlated vs diagonal Q; linear vs min-of-neighbours polygon.
 - η per beam (η_i from the crossing distance t_i) and leader-informed free space (section 4.6).
 - Covariance-weighted gradient fit (section 7.2).
-- Sparse LiDAR: measure every S-th beam. Known pitfalls: shifts that are multiples of S never fill the gaps (aliasing), and translation does not sweep along the heading. Remedies: interleave the ray offset per scan, or BLUE weights in the blend. Keep the number of state bins M separate from the number of rays from the start, so this is a mask change and not a refactor.
+- Sparse LiDAR: measure every S-th beam. Known pitfalls: shifts that are multiples of S never fill the gaps (aliasing), and translation does not sweep along the heading. Remedies: interleave the ray offset per scan, or BLUE weights in the blend. The baseline keeps one state bin per ray (equal scan and belief grids, as `AGENTS.md` requires); the sparse extension enters as a measurement mask on that grid (H selects the measured beams), so it needs no refactor. Separating M state bins from the physical rays stays a deliberate contract change, only if the mask proves insufficient.
 - Noise mismatch: filter σ_r different from the true σ_r.
 
 ### Scenario library (suggested)
@@ -300,7 +316,7 @@ The distance from the leader to the visible set should be defined by obstacle ed
 ## 11. Open decisions to settle with Theo during implementation
 
 1. Sector size: aperture β and N (e.g. 90° to 120° with about 1° spacing, or a 360° LiDAR with the FoV as a sub-sector). The filter can run on the full LiDAR while the visible set uses only the FoV sector.
-2. The value of η for the baseline, and whether the per-beam or leader-informed variants enter the report.
+2. Whether the per-beam or leader-informed η variants enter the report. (Settled: baseline η = 0.5, with η = 0 as source (iv).)
 3. Polygon interpolation between beams: linear vs conservative min-of-neighbours.
 4. Whether an obstacle-collision barrier is needed in the experiments.
 5. Whether the sparse-LiDAR extension is part of the final report or future work.
