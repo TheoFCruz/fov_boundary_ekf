@@ -196,10 +196,22 @@ The runner never calls it. Only the CBF policy does, from its config.
   change `scenario.Obstacles`, `Observer.Fov` or `Sensor.NumRays`, rebuild
   the policy (see `+scenarios/template.m`). It must never reach an estimator.
 - **Methodology transport:** `estimation.predictBoundaryByTransport` is a
-  placeholder that errors. It will transport the belief mean to `pose`
-  (`docs/metodologia.pdf` §1.2) and return the polygon built from the
-  predicted mean. The barrier uses the expected boundary, not a confidence
-  bound such as μ − κσ (§1.4).
+  placeholder that errors. It will call `estimation.transportBoundary`
+  (below) to move the belief mean to `pose` and return the polygon built
+  from the predicted mean. The barrier uses the expected boundary, not a
+  confidence bound such as μ − κσ (§1.4).
+
+`estimation.transportBoundary(belief, pose, params)` is the mean-only
+transport core (`docs/metodologia.pdf` §1.2, eqs. 1-2, 7): it transports
+every old beam's endpoint to the hypothetical `pose` and resamples onto the
+same fixed grid, labelling each new beam `blend`, `no-return`, `jump-gap`,
+or `new`. It takes the same `(belief, pose)` pair as a `BoundaryPredictor`
+so the still-placeholder `predictBoundaryByTransport` wrapper (building the
+polygon) and the future EKF's `Predict` step (with the real motion instead
+of a hypothetical displacement) can both call it directly. It does not yet
+propagate covariance, place a corner between a jump pair (eqs. 8-10), or
+apply the free-space disocclusion fraction η (eq. 11); jump gaps are filled
+by the newly-explored rule and labelled `jump-gap` until that lands.
 
 ### How the methodology's sources map onto the slots
 
@@ -256,6 +268,7 @@ the policy calls the predictor with hypothetical displacements.
 | `scripts/runBoxInFrontOfWall.m` | Box occlusion scenario (oracle CBF); summary, diagnostics, replay. |
 | `scripts/runClutteredField.m` | Cluttered-field scenario (oracle CBF); summary, diagnostics, replay. |
 | `scripts/plotControlDiagnostics.m` | Plots CBF diagnostics for a `result` already in the workspace. |
+| `scripts/checkTransport.m` | Plots `estimation.transportBoundary` against truth in `scenarios.openRoom`, for a rotation and a translation case. |
 
 ### `+scenarios`: experiment definitions (return a scenario struct, run nothing)
 
@@ -265,6 +278,7 @@ the policy calls the predictor with hypothetical displacements.
 | `controlTest.m` | No obstacles; the leader drives toward max range; oracle CBF with zero nominal input. |
 | `boxInFrontOfWall.m` | Compact 2 m layout: a 0.2 m box in front of a wall; the leader crosses the box's shadow; oracle CBF. |
 | `clutteredField.m` | Compact layout with 7 small posts; the leader visits waypoints over 32 s; oracle CBF. |
+| `openRoom.m` | Plan scenario S1: an enclosed room with no depth jumps; tests transport and newly-explored beams. |
 | `template.m` | Every configurable field written out with units; copy it to make new scenarios. |
 
 ### `+simulation`: the runner
@@ -310,7 +324,9 @@ the policy calls the predictor with hypothetical displacements.
 | File | Role |
 |---|---|
 | `makePassThroughEstimator.m` | `Initialize`/`Predict`/`Correct` handles; belief = latest scan, zero covariance, no-op predict. The EKF will be a sibling `make...Estimator`. |
-| `predictBoundaryByTransport.m` | Placeholder for the methodology boundary predictor (mean transport, then the polygon from the predicted mean); errors until implemented. |
+| `transportBoundary.m` | Mean-only transport and resampling core (eqs. 1-2, 7): moves `belief.Mean` to a hypothetical pose and labels each new beam blend/no-return/jump-gap/new. |
+| `defaultTransportParams.m` | The eq. 7 jump-test constants (`JumpThreshold`, `JumpRelative`) used by `transportBoundary`. |
+| `predictBoundaryByTransport.m` | Placeholder for the methodology boundary predictor (wraps `transportBoundary`, then builds the polygon from the predicted mean); errors until implemented. |
 
 ### `+control`
 
@@ -329,6 +345,7 @@ the policy calls the predictor with hypothetical displacements.
 | `plotSimulationSummary.m` | Trajectories and the sampled-polygon distance over time. |
 | `plotControlDiagnostics.m` | h, inputs, slack and step sizes over time; prints status counts. |
 | `saveSimulationFrames.m` | Exports selected replay frames as PNGs under `frames/` (ignored by Git). |
+| `plotTransportCheck.m` | Plots `transportBoundary`'s predicted mean against a truth scan, beams marked by label; replay-only diagnostic. |
 
 ### `tests`
 

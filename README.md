@@ -49,6 +49,15 @@ it is implemented. Every fallback path (invalid geometry, unusable gradient,
 zero control authority, QP failure) returns the reference clipped to the
 input bounds, not a zero command.
 
+`estimation.transportBoundary(belief, pose, params)` is the mean-only
+transport core the placeholder above will wrap: it moves `belief.Mean` to a
+hypothetical pose and resamples it onto the fixed beam grid (checkpoint 1 of
+the methodology's prediction step, `docs/metodologia.pdf` §1.2), labelling
+each beam blend/no-return/jump-gap/new. `scenarios.openRoom()` (plan
+scenario S1: an enclosed room with no depth jumps) exercises it; see
+`scripts/checkTransport.m` and `viz.plotTransportCheck`. It does not yet
+propagate covariance or handle disocclusion.
+
 ## Structure
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the simulation

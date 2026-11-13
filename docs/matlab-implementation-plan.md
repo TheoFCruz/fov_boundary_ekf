@@ -239,6 +239,16 @@ Out of scope (state it in the write-up): guarantees for jumps in h caused by fil
 
 Each stage lists what to build and what must be true before moving on.
 
+**Build-order deviation (2026-11-13):** the mean-only boundary-transport
+model (this section's "P0-P2" checkpoint 1: `estimation.defaultTransportParams`,
+`scenarios.openRoom`, `estimation.transportBoundary` covering eqs. 1, 2, and
+the eq. 7 jump test) is being built before stage 1's correction-only filter,
+ahead of the staged order below. Edges/disocclusion/the predictor wrapper
+(checkpoint 2) and covariance (stage 1's P6) follow later. This gives the
+CBF gradient source (ii), the latest-reading transport predictor, without
+any EKF, which is useful on its own and exercises the transport core the
+EKF's `Predict` will reuse.
+
 **Stage 0. Ground truth and sensor.**
 Build: audit (section 2), parameter struct, scenario library (below), seeded noise.
 Pass when: ray-casting matches hand-computed ranges in a simple room; noise histogram has the right σ; no-return handling is as intended; the observer and target move as commanded.

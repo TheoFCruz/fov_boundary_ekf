@@ -17,6 +17,37 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-13 status note: mean-only boundary transport (checkpoint 1)
+
+Implemented, ahead of the staged order in `docs/matlab-implementation-plan.md`
+§9 (see that section's build-order-deviation note): `estimation.
+defaultTransportParams` (the eq. 7 jump-test constants), `scenarios.openRoom`
+(plan scenario S1, an enclosed room with no depth jumps), and `estimation.
+transportBoundary(belief, pose, params)`, the mean-only transport and
+resampling core (`docs/metodologia.pdf` §1.2, eqs. 1, 2, 7). It transports
+every old beam's endpoint to a hypothetical pose and resamples onto the same
+fixed grid: same-surface old pairs blend (eq. 2, nearest-candidate collision
+rule), a no-return pair predicts the range cap, a mixed or jump-failing pair
+and any beam with no bracketing pair extend the nearest covered surface
+(labelled `jump-gap` or `new` respectively). It does not yet propagate
+covariance, place a corner between a jump pair (eqs. 8-10), apply the
+free-space disocclusion fraction η (eq. 11), or wrap into a `BoundaryPredictor`
+polygon (`estimation.predictBoundaryByTransport` is still the unimplemented
+placeholder; it will call this function). `+viz/plotTransportCheck.m` and
+`scripts/checkTransport.m` give a replay-only comparison plot.
+
+Verified: `tests/TestTransport.m` (12/12) and the full suite,
+`runtests('tests')` (84/84), on 2026-11-13 (headless). Measured errors:
+blend beams match an independent truth cast to 4e-16 m at an exact
+beam-multiple rotation, to 3.6e-4 m at a 0.4-beam fraction, and to 3.9e-4 m
+under translation and mixed rotation+translation (sub-mm, as expected from
+the within-surface linear-interpolation error); newly-explored beams extend
+a flat wall to 2e-15 m; one beam at a front/side-wall corner cusp (continuous
+range, discontinuous slope, not caught by the eq. 7 range-difference jump
+test) reaches 3.5e-3 m, a known limitation until the corner estimate (eqs.
+8-10) lands. Not verified: desktop graphics (`viz.plotTransportCheck` was
+only smoke-tested invisibly).
+
 ## 0. 2026-11-12 status note: boundary predictor seam
 
 `control.makeSignedDistanceCbfPolicy` now takes a required

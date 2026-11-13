@@ -85,7 +85,10 @@ classdef TestTransport < matlab.unittest.TestCase
             prediction = estimation.transportBoundary( ...
                 belief, poseB, estimation.defaultTransportParams());
             isNew = prediction.Label == "new";
-            verifyGreaterThan(testCase, sum(isNew), 10);
+            % Most newly-uncovered beams at this rotation bracket a
+            % no-return old pair (label "no-return"); a handful at the
+            % trailing sector edge have no bracketing pair at all.
+            verifyGreaterThan(testCase, sum(isNew), 3);
             verifyEqual(testCase, prediction.HasReturn(isNew), ...
                 truth.HasReturn(isNew));
             scored = isNew & truth.HasReturn;
@@ -122,6 +125,145 @@ classdef TestTransport < matlab.unittest.TestCase
             verifyEqual(testCase, prediction.Label(2), "blend");
             verifyEqual(testCase, prediction.Mean(2), 2.06, 'AbsTol', 1e-9);
         end
+
+        function translationErrorGrowsWithStepSize(testCase)
+            % Pure translation (no rotation) at a flat wall, forward and
+            % sideways: the within-surface blend error stays small and the
+            % larger step's error exceeds the smaller step's. Beam arc
+            % length at the ~2 m front wall is about 0.044 m.
+            scenario = scenarios.openRoom();
+            poseA = scenario.Observer.InitialPose;
+            scanA = sensing.raycastScan(poseA, scenario.Observer.Fov, ...
+                scenario.Obstacles, scenario.Sensor, 0);
+            estimator = estimation.makePassThroughEstimator();
+            state = estimator.Initialize(struct());
+            [~, belief] = estimator.Correct(state, scanA);
+            isNearWedge = nearNoReturnWedge(belief.HasReturn);
+
+            for direction = [1, 0; 0, 1].'
+                smallError = blendError(belief, poseA, direction.' * 0.2 * 0.04, ...
+                    scenario, isNearWedge);
+                largeError = blendError(belief, poseA, direction.' * 4 * 0.04, ...
+                    scenario, isNearWedge);
+                % Measured: forward 1.8e-4 (0.2 beam) to 3.8e-4 (4 beam);
+                % sideways 2.0e-4 to 2.8e-4. Bound both with headroom.
+                verifyLessThan(testCase, smallError, 1e-3);
+                verifyLessThan(testCase, largeError, 1e-3);
+                verifyGreaterThan(testCase, largeError, smallError);
+            end
+        end
+
+        function mixedRotationAndTranslationHasSmallBlendError(testCase)
+            % A step combining rotation and translation is the general case
+            % the EKF's Predict will use every step.
+            scenario = scenarios.openRoom();
+            poseA = scenario.Observer.InitialPose;
+            poseB = poseA + [0.1, 0.05, 0.03];
+            [belief, truth] = transportCase(scenario, poseA, poseB);
+            isNearWedge = nearNoReturnWedge(belief.HasReturn);
+
+            prediction = estimation.transportBoundary( ...
+                belief, poseB, estimation.defaultTransportParams());
+            scored = prediction.Label == "blend" & ~isNearWedge;
+            err = abs(prediction.Mean(scored) - truth.Ranges(scored));
+            % Measured max error 3.9e-4 m.
+            verifyLessThan(testCase, max(err), 1e-3);
+        end
+
+        function noReturnWedgeStaysAtCapWithoutBlending(testCase)
+            % Deep inside a no-return wedge (away from its borders), beams
+            % must stay at MaxRange with HasReturn false; nothing interpolates
+            % a "blend" value between the wall and the cap.
+            scenario = scenarios.openRoom();
+            poseA = scenario.Observer.InitialPose;
+            poseB = poseA + [0.04, 0, 0];
+            [belief, ~] = transportCase(scenario, poseA, poseB);
+
+            prediction = estimation.transportBoundary( ...
+                belief, poseB, estimation.defaultTransportParams());
+            deepWedge = abs(prediction.Angles) > deg2rad(33) ...
+                & abs(prediction.Angles) < deg2rad(39);
+            verifyGreaterThan(testCase, sum(deepWedge), 3);
+            verifyTrue(testCase, all(prediction.Label(deepWedge) == "no-return"));
+            verifyTrue(testCase, all(prediction.Mean(deepWedge) == belief.MaxRange));
+            verifyFalse(testCase, any(prediction.HasReturn(deepWedge)));
+        end
+
+        function jumpGapAppearsOnlyNearReturnBoundary(testCase)
+            % No pair inside one wall should fail the eq. 7 jump test: a
+            % "jump-gap" label should appear only where an old pair spans a
+            % return/no-return transition, not deep inside the front wall
+            % or deep inside a side wall.
+            scenario = scenarios.openRoom();
+            poseA = scenario.Observer.InitialPose;
+            poseB = poseA + [0.04, 0, 0];
+            [belief, ~] = transportCase(scenario, poseA, poseB);
+
+            prediction = estimation.transportBoundary( ...
+                belief, poseB, estimation.defaultTransportParams());
+            isJumpGap = prediction.Label == "jump-gap";
+            % Measured jump-gap angles: +-32.5 and +-41.25 deg, at the
+            % wedge borders. The deep front-wall and deep side-wall
+            % regions must have none.
+            deepFrontWall = abs(prediction.Angles) < deg2rad(25);
+            deepSideWall = abs(prediction.Angles) > deg2rad(45);
+            verifyFalse(testCase, any(isJumpGap & deepFrontWall));
+            verifyFalse(testCase, any(isJumpGap & deepSideWall));
+        end
+
+        function nonzeroHeadingTranslatesInOldSensorFrame(testCase)
+            % Start with a nonzero heading and translate along the
+            % observer's own body x axis. Delta p and Delta psi are in the
+            % old sensor frame, so a world/body mix-up would show up here.
+            scenario = scenarios.openRoom();
+            poseA = [0.1, 0.2, 0.3];
+            heading = poseA(3);
+            poseB = poseA + [0.1 * cos(heading), 0.1 * sin(heading), 0];
+            [belief, truth] = transportCase(scenario, poseA, poseB);
+
+            prediction = estimation.transportBoundary( ...
+                belief, poseB, estimation.defaultTransportParams());
+            isBlend = prediction.Label == "blend";
+            err = abs(prediction.Mean(isBlend) - truth.Ranges(isBlend));
+            % Measured max error 3.5e-3 m, at the single beam closest to
+            % the front/side-wall corner: the true range has a cusp there
+            % (continuous range, discontinuous slope) that the eq. 7
+            % range-difference jump test does not catch; the corner
+            % estimate (eqs. 8-10) that would handle it is a later
+            % checkpoint. All other blend beams are far more accurate.
+            verifyLessThan(testCase, max(err), 5e-3);
+        end
+
+        function fullFovBeliefErrorsWithIdentifier(testCase)
+            belief = struct();
+            belief.Angles = [-0.1; 0; 0.1];
+            belief.Mean = [1; 1; 1];
+            belief.Covariance = sparse(3, 3);
+            belief.HasReturn = true(3, 1);
+            belief.ObserverPose = [0, 0, 0];
+            belief.MaxRange = 5;
+            belief.OpeningAngle = 2 * pi;
+
+            verifyError(testCase, @() estimation.transportBoundary( ...
+                belief, [0.1, 0, 0], estimation.defaultTransportParams()), ...
+                'estimation:transportBoundary:FullFovUnsupported');
+        end
+
+        function plotTransportCheckRendersInvisibly(testCase)
+            scenario = scenarios.openRoom();
+            poseA = scenario.Observer.InitialPose;
+            poseB = poseA + [0.04, 0, 0];
+            [belief, truth] = transportCase(scenario, poseA, poseB);
+            prediction = estimation.transportBoundary( ...
+                belief, poseB, estimation.defaultTransportParams());
+
+            handles = viz.plotTransportCheck(prediction, truth, 'Visible', false);
+            testCase.addTeardown(@() close(handles.Figure));
+
+            verifyEqual(testCase, string(get(handles.Figure, 'Visible')), "off");
+            verifyError(testCase, @() viz.plotTransportCheck(prediction, truth, ...
+                'Visible', 1), 'viz:plotTransportCheck:InvalidOption');
+        end
     end
 end
 
@@ -152,4 +294,16 @@ mask = false(size(hasReturn));
 transition = find(diff(hasReturn) ~= 0);
 mask(transition) = true;
 mask(transition + 1) = true;
+end
+
+function maxError = blendError(belief, poseA, offset, scenario, isNearWedge)
+%BLENDERROR Max blend-beam error for a pure translation offset from poseA.
+
+poseB = poseA + [offset(:).', 0];
+truth = sensing.raycastScan(poseB, scenario.Observer.Fov, ...
+    scenario.Obstacles, scenario.Sensor, 0);
+prediction = estimation.transportBoundary( ...
+    belief, poseB, estimation.defaultTransportParams());
+scored = prediction.Label == "blend" & ~isNearWedge;
+maxError = max(abs(prediction.Mean(scored) - truth.Ranges(scored)));
 end
