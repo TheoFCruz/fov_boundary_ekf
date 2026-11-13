@@ -7,12 +7,11 @@ classdef TestControl < matlab.unittest.TestCase
         end
 
         function nominalFeasibleReferenceIsUnchanged(testCase)
-            policy = control.makeSignedDistanceCbfPolicy();
+            policy = emptyFieldPolicy();
             [input, ~, diagnostics] = policy(validObservation(), [0, 0, 0], struct());
 
             verifyEqual(testCase, input, zeros(1, 3), 'AbsTol', 1e-10);
             verifyEqual(testCase, diagnostics.Status, "nominal-feasible");
-            verifyEqual(testCase, diagnostics.BoundarySource, "belief-frozen");
             verifyGreaterThanOrEqual(testCase, diagnostics.ConstraintResidual, -1e-10);
         end
 
@@ -21,7 +20,7 @@ classdef TestControl < matlab.unittest.TestCase
             observation.ObserverPose = [0, 0, pi/2];
             observation.LeaderPose = [-0.5, 2, pi/2];
             observation.LeaderReference = [1, 0, 3];
-            policy = control.makeSignedDistanceCbfPolicy();
+            policy = emptyFieldPolicy();
             [~, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
 
             inputMap = [0, -1, 0; 1, 0, 0; 0, 0, 1];
@@ -36,7 +35,7 @@ classdef TestControl < matlab.unittest.TestCase
         function policyCorrectsNearBoundaryAndRespectsBounds(testCase)
             observation = validObservation();
             observation.LeaderPose = [4.93, 0.3, 0];
-            policy = control.makeSignedDistanceCbfPolicy();
+            policy = emptyFieldPolicy();
             [input, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
 
             verifyGreaterThan(testCase, input(1), 0);
@@ -54,7 +53,7 @@ classdef TestControl < matlab.unittest.TestCase
             observation = validObservation();
             observation.LeaderPose = [4.93, 0.3, 0];
             observation.LeaderReference = [100, 0, 0];
-            policy = control.makeSignedDistanceCbfPolicy();
+            policy = emptyFieldPolicy();
             [input, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
 
             verifyGreaterThan(testCase, diagnostics.Slack, 0);
@@ -63,59 +62,53 @@ classdef TestControl < matlab.unittest.TestCase
             verifyLessThanOrEqual(testCase, input(:), [0.5; 0.5; 1] + 1e-9);
         end
 
-        function unsupportedBeliefUsesClippedNominalFallback(testCase)
-            observation = validObservation();
-            observation.Belief.IsSupported(:) = false;
+        function invalidGeometryUsesClippedNominalFallback(testCase)
+            degeneratePredictor = @(belief, pose) zeros(4, 2);
+            policy = control.makeSignedDistanceCbfPolicy( ...
+                struct('BoundaryPredictor', degeneratePredictor));
             reference = [0.3, -0.2, 0.1];
-            policy = control.makeSignedDistanceCbfPolicy();
-            [input, ~, diagnostics] = policy(observation, reference, struct());
+            [input, ~, diagnostics] = policy(validObservation(), reference, struct());
 
             % A nonzero nominal must survive the fallback (clipped, not zeroed).
             verifyEqual(testCase, input, reference, 'AbsTol', 1e-12);
-            verifyEqual(testCase, diagnostics.Status, "invalid-belief-fallback");
-        end
-
-        function degenerateBeliefUsesClippedNominalFallback(testCase)
-            observation = validObservation();
-            observation.Belief.Mean(:) = 0;
-            reference = [0.3, -0.2, 0.1];
-            policy = control.makeSignedDistanceCbfPolicy();
-            [input, ~, diagnostics] = policy(observation, reference, struct());
-
-            verifyEqual(testCase, input, reference, 'AbsTol', 1e-12);
-            verifyEqual(testCase, diagnostics.Status, "invalid-belief-fallback");
+            verifyEqual(testCase, diagnostics.Status, "invalid-geometry-fallback");
         end
 
         function fallbackClipsReferenceToInputBounds(testCase)
-            observation = validObservation();
-            observation.Belief.IsSupported(:) = false;
-            reference = [10, -10, 0];
-            policy = control.makeSignedDistanceCbfPolicy();
-            [input, ~, diagnostics] = policy(observation, reference, struct());
+            degeneratePredictor = @(belief, pose) zeros(4, 2);
+            policy = control.makeSignedDistanceCbfPolicy( ...
+                struct('BoundaryPredictor', degeneratePredictor));
+            [input, ~, diagnostics] = policy(validObservation(), [10, -10, 0], struct());
 
             verifyEqual(testCase, input, [0.5, -0.5, 0], 'AbsTol', 1e-12);
-            verifyEqual(testCase, diagnostics.Status, "invalid-belief-fallback");
+            verifyEqual(testCase, diagnostics.Status, "invalid-geometry-fallback");
         end
 
-        function policyRespondsToBeliefGeometryDeterministically(testCase)
+        function policyIsDeterministicAndFollowsPredictedGeometry(testCase)
             observation = validObservation();
             observation.LeaderPose = [3, 0.5, 0];
-            policy = control.makeSignedDistanceCbfPolicy();
-            [firstInput, ~, firstDiagnostics] = policy(observation, [0, 0, 0], struct());
-            [secondInput, ~, secondDiagnostics] = policy(observation, [0, 0, 0], struct());
-            observation.Belief.Mean = 2 * ones(size(observation.Belief.Mean));
-            [~, ~, changedDiagnostics] = policy(observation, [0, 0, 0], struct());
+            nominal = zeros(1, 3);
+            policy = emptyFieldPolicy();
+            [firstInput, ~, firstDiagnostics] = policy(observation, nominal, struct());
+            [secondInput, ~, secondDiagnostics] = policy(observation, nominal, struct());
+
+            % The same observation through a predictor that sees a wall.
+            wall = fov.polygonObstacle('wall', [2, -2; 2, 2; 2.3, 2; 2.3, -2]);
+            wallPredictor = oraclePredictor(fov.FovSpec(5, pi/2), wall, 5);
+            wallPolicy = control.makeSignedDistanceCbfPolicy( ...
+                struct('BoundaryPredictor', wallPredictor));
+            [~, ~, wallDiagnostics] = wallPolicy(observation, nominal, struct());
 
             verifyEqual(testCase, firstInput, secondInput, 'AbsTol', 1e-12);
             verifyEqual(testCase, firstDiagnostics.SignedDistance, ...
                 secondDiagnostics.SignedDistance, 'AbsTol', 1e-12);
-            verifyNotEqual(testCase, changedDiagnostics.SignedDistance, ...
+            verifyNotEqual(testCase, wallDiagnostics.SignedDistance, ...
                 firstDiagnostics.SignedDistance);
         end
 
         function zeroAuthorityBoundsUseZeroAuthorityStatus(testCase)
-            config = struct('InputLower', zeros(3, 1), 'InputUpper', zeros(3, 1));
-            policy = control.makeSignedDistanceCbfPolicy(config);
+            noAuthority = struct('InputLower', zeros(3, 1), 'InputUpper', zeros(3, 1));
+            policy = emptyFieldPolicy(noAuthority);
             [input, ~, diagnostics] = policy(validObservation(), [0, 0, 0], struct());
 
             verifyEqual(testCase, input, zeros(1, 3));
@@ -123,31 +116,102 @@ classdef TestControl < matlab.unittest.TestCase
         end
 
         function rejectsInvalidPolicyConfiguration(testCase)
-            verifyError(testCase, @() control.makeSignedDistanceCbfPolicy( ...
-                struct('CbfRate', 0)), ...
-                'control:makeSignedDistanceCbfPolicy:InvalidConfig');
-            verifyError(testCase, @() control.makeSignedDistanceCbfPolicy( ...
-                struct('InputWeights', diag([1, 1, -1]))), ...
-                'control:makeSignedDistanceCbfPolicy:InvalidConfig');
-            verifyError(testCase, @() control.makeSignedDistanceCbfPolicy( ...
-                struct('GradientBeamMultiples', [0, 1])), ...
-                'control:makeSignedDistanceCbfPolicy:InvalidConfig');
-            verifyError(testCase, @() control.makeSignedDistanceCbfPolicy( ...
-                struct('BoundarySource', 5)), ...
+            oracle = oraclePredictor(fov.FovSpec(5, pi/2), [], 5);
+            invalidConfigs = { ...
+                struct('BoundaryPredictor', oracle, 'CbfRate', 0), ...
+                struct('BoundaryPredictor', oracle, 'InputWeights', diag([1, 1, -1])), ...
+                struct('BoundaryPredictor', oracle, 'GradientBeamMultiples', [0, 1]), ...
+                struct('BoundaryPredictor', 5), ...
+                struct('CbfRate', 4)};
+            for index = 1:numel(invalidConfigs)
+                verifyError(testCase, ...
+                    @() control.makeSignedDistanceCbfPolicy(invalidConfigs{index}), ...
+                    'control:makeSignedDistanceCbfPolicy:InvalidConfig');
+            end
+            verifyError(testCase, @() control.makeSignedDistanceCbfPolicy(), ...
                 'control:makeSignedDistanceCbfPolicy:InvalidConfig');
         end
 
-        function oracleSourceGradientMatchesContinuousGeometrySign(testCase)
+        function solverClassifiesConstraintOutcomes(testCase)
+            [config, options] = solverSetup();
+            moveForward = [1, 0, 0];
+            still = zeros(1, 3);
+
+            [input, qp] = control.solveCbfQp(moveForward, -1, still, config, options);
+            verifyEqual(testCase, input, zeros(1, 3), 'AbsTol', 1e-9);
+            verifyEqual(testCase, qp.Status, "nominal-feasible");
+
+            % Minimal change under W = I. The soft slack leaves a tiny gap:
+            % minimizing u^2 + lambda*(0.2 - u)^2 gives u = 0.2*lambda/(lambda + 1).
+            [input, qp] = control.solveCbfQp(moveForward, 0.2, still, config, options);
+            lambda = config.SlackPenalty;
+            expected = [0.2 * lambda / (lambda + 1), 0, 0];
+            verifyEqual(testCase, input, expected, 'AbsTol', 1e-9);
+            verifyEqual(testCase, qp.Status, "cbf-corrected");
+
+            % Beyond the 0.5 bound: saturate and carry the rest as slack.
+            [input, qp] = control.solveCbfQp(moveForward, 1, still, config, options);
+            verifyEqual(testCase, input, [0.5, 0, 0], 'AbsTol', 1e-6);
+            verifyEqual(testCase, qp.Slack, 0.5, 'AbsTol', 1e-3);
+            verifyEqual(testCase, qp.Status, "relaxed-with-slack");
+        end
+
+        function solverReturnsClippedNominalWithoutAuthority(testCase)
+            [config, options] = solverSetup();
+            noAuthority = zeros(1, 3);
+            nominal = [10, -10, 0];
+            [input, qp] = control.solveCbfQp(noAuthority, 1, nominal, config, options);
+
+            verifyEqual(testCase, input, [0.5, -0.5, 0]);
+            verifyEqual(testCase, qp.Status, "zero-control-authority");
+        end
+
+        function gradientRecoversLinearBarrierExactly(testCase)
+            pose = [1; 2; 0.3];
+            target = [4; 5];
+            barrier = 0.7;
+            poseGradient = [2, -3, 0.5];
+            targetGradient = [-1, 4];
+            barrierAtPose = @(q) barrier + poseGradient * (q - pose);
+            barrierAtTarget = @(y) barrier + targetGradient * (y - target);
+
+            [gPose, gTarget, sampleCount, quality] = control.barrierGradient( ...
+                barrierAtPose, barrierAtTarget, pose, target, barrier, 0.02, [1, 2]);
+
+            verifyEqual(testCase, gPose, poseGradient, 'AbsTol', 1e-9);
+            verifyEqual(testCase, gTarget, targetGradient, 'AbsTol', 1e-9);
+            verifyEqual(testCase, sampleCount, 12);
+            verifyEqual(testCase, quality, "usable");
+        end
+
+        function gradientIsUnusableWhenSamplesAreInvalid(testCase)
+            invalid = @(q) NaN;
+            valid = @(y) 0;
+            [gPose, ~, sampleCount, quality] = control.barrierGradient( ...
+                invalid, valid, [0; 0; 0], [1; 0], 0, 0.02, [1, 2]);
+
+            verifyTrue(testCase, all(isnan(gPose)));
+            verifyEqual(testCase, sampleCount, 0);
+            verifyEqual(testCase, quality, "unusable");
+        end
+
+        function transportPredictorIsAPlaceholder(testCase)
+            verifyError(testCase, ...
+                @() estimation.predictBoundaryByTransport(struct(), [0; 0; 0]), ...
+                'estimation:predictBoundaryByTransport:NotImplemented');
+        end
+
+        function oraclePredictorGradientMatchesContinuousGeometrySign(testCase)
             % Observer facing a wall with a corner, per the simulation/control
             % audit's hand-checked case: target just inside the corner shadow.
             fovSpec = fov.FovSpec(10, deg2rad(100));
             wall = fov.polygonObstacle('wall', [4, -2; 4, 2; 4.3, 2; 4.3, -2]);
             numRays = 81;
-            source = control.makeOracleBoundarySource(wall, fovSpec, numRays);
+            predictor = oraclePredictor(fovSpec, wall, numRays);
             observation = oracleObservation(fovSpec, numRays, [8, 3.9, 0]);
 
             policy = control.makeSignedDistanceCbfPolicy( ...
-                struct('BoundarySource', source));
+                struct('BoundaryPredictor', predictor));
             [~, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
 
             verifyEqual(testCase, diagnostics.GradientQuality, "usable");
@@ -155,15 +219,15 @@ classdef TestControl < matlab.unittest.TestCase
             verifyGreaterThan(testCase, diagnostics.ObserverPoseGradient(2), 0);
         end
 
-        function oracleSourceGradientIsSmallBehindWallFace(testCase)
+        function oraclePredictorGradientIsSmallBehindWallFace(testCase)
             fovSpec = fov.FovSpec(10, deg2rad(100));
             wall = fov.polygonObstacle('wall', [4, -2; 4, 2; 4.3, 2; 4.3, -2]);
             numRays = 81;
-            source = control.makeOracleBoundarySource(wall, fovSpec, numRays);
+            predictor = oraclePredictor(fovSpec, wall, numRays);
             observation = oracleObservation(fovSpec, numRays, [5, 0.5, 0]);
 
             policy = control.makeSignedDistanceCbfPolicy( ...
-                struct('BoundarySource', source));
+                struct('BoundaryPredictor', predictor));
             [~, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
 
             verifyEqual(testCase, diagnostics.GradientQuality, "usable");
@@ -175,16 +239,16 @@ classdef TestControl < matlab.unittest.TestCase
                 abs(diagnostics.ObserverPoseGradient(1)), 0.2);
         end
 
-        function oracleSourceGradientIsSmallOnMaxRangeArc(testCase)
+        function oraclePredictorGradientIsSmallOnMaxRangeArc(testCase)
             fovSpec = fov.FovSpec(10, deg2rad(100));
             emptyObstacles = struct('Name', {}, 'Vertices', {});
             numRays = 81;
-            source = control.makeOracleBoundarySource(emptyObstacles, fovSpec, numRays);
+            predictor = oraclePredictor(fovSpec, emptyObstacles, numRays);
             target = 10 * [cos(0.1), sin(0.1)];
             observation = oracleObservation(fovSpec, numRays, [target, 0]);
 
             policy = control.makeSignedDistanceCbfPolicy( ...
-                struct('BoundarySource', source));
+                struct('BoundaryPredictor', predictor));
             [~, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
 
             verifyEqual(testCase, diagnostics.GradientQuality, "usable");
@@ -212,7 +276,7 @@ end
 
 function observation = oracleObservation(fovSpec, numRays, leaderPose)
 %ORACLEOBSERVATION Build an observation with the sensor-grid Belief.Angles
-% that an oracle BoundarySource still needs for the beam-spacing step size.
+% that the policy still needs for the beam-spacing step size.
 angles = fov.sampleRayAngles(fov.Observer('Position', [0, 0], 'Heading', 0, ...
     'Fov', fovSpec), numRays);
 belief = struct('Angles', angles, 'Mean', nan(size(angles)), ...
@@ -222,4 +286,31 @@ observation = struct( ...
     'ObserverPose', [0, 0, 0], ...
     'LeaderPose', leaderPose, ...
     'LeaderReference', [0, 0, 0]);
+end
+
+function predictor = oraclePredictor(fovSpec, obstacles, numRays)
+%ORACLEPREDICTOR Oracle boundary predictor, as the scenario factories build it.
+predictor = @(belief, pose) fov.visibleBoundaryAt(pose, fovSpec, obstacles, numRays);
+end
+
+function policy = emptyFieldPolicy(overrides)
+%EMPTYFIELDPOLICY Policy whose oracle sees the bare 5 m, 90 deg sector.
+% It matches validObservation's 5-ray grid; overrides adds config fields.
+config = struct('BoundaryPredictor', oraclePredictor(fov.FovSpec(5, pi/2), [], 5));
+if nargin > 0
+    for name = fieldnames(overrides).'
+        config.(name{1}) = overrides.(name{1});
+    end
+end
+policy = control.makeSignedDistanceCbfPolicy(config);
+end
+
+function [config, options] = solverSetup()
+%SOLVERSETUP Policy-default bounds with W = I for hand-checkable QP solutions.
+config = struct( ...
+    'InputLower', [-0.5; -0.5; -1], ...
+    'InputUpper', [0.5; 0.5; 1], ...
+    'InputWeights', eye(3), ...
+    'SlackPenalty', 1e4);
+options = optimoptions('quadprog', 'Algorithm', 'active-set', 'Display', 'off');
 end

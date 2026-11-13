@@ -17,6 +17,36 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-12 status note: boundary predictor seam
+
+`control.makeSignedDistanceCbfPolicy` now takes a required
+`config.BoundaryPredictor`, `boundary = predictor(belief, pose)`, in place of
+the optional `BoundarySource(observation, pose)`. The frozen-belief default
+(current ranges moved rigidly to the queried pose) was removed: it is not one
+of the methodology's sources and gave wrong-sign gradients near occluders.
+The oracle predictor is the baseline: scenario factories and
+`scripts/runMovingPair.m` wrap the new `fov.visibleBoundaryAt` (a single
+noiseless `fov.castRays` at the queried pose), replacing
+`control.makeOracleBoundarySource`. The methodology's predictor (transport of
+the belief mean to the queried pose, then the polygon from the predicted
+mean; `docs/metodologia.pdf` uses the expected boundary, not a confidence
+bound) has a placeholder,
+`estimation.predictBoundaryByTransport`, which errors until implemented.
+Invalid-geometry fallbacks now report `invalid-geometry-fallback`, and the
+`BoundarySource` diagnostics field was dropped.
+
+The policy was then split into predict → barrier → gradient → solve: the
+least-squares gradient moved to `control.barrierGradient` and the slack QP,
+its status and its zero-authority/QP-failure fallbacks to
+`control.solveCbfQp`. Closed-loop runs of `boxInFrontOfWall`, `controlTest`
+and `clutteredField` (with range noise) gave identical inputs and
+diagnostics to the pre-split policy. New tests exercise the solver with
+hand-picked constraints and the gradient on an exactly linear barrier.
+
+Verified: `tests/TestControl.m` (18/18), `tests/TestRayCasting.m` and
+`tests/TestSimulation.m` passed on 2026-11-12. The full suite and desktop
+replay were not run.
+
 ## 0. 2026-10-27 status note: oracle-boundary simulation/control cleanup
 
 Implemented the audit's recommended fixes (`docs/SIMULATION_CONTROL_AUDIT.md`)

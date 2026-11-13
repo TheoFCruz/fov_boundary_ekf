@@ -38,17 +38,22 @@ and actual verification; record unavailable or unrun MATLAB and graphics
 verification honestly. The full suite (`runtests('tests')`) passed 70/70 on
 2026-11-12, after vectorizing `fov.castRays` and the polygon self-intersection
 check (behavior-preserving; the follow-up ray-cast cleanup was rerun only
-with `TestRayCasting` and `TestMetrics`; earlier 70/70 on 2026-10-28 after the
+with `TestRayCasting` and `TestMetrics`, and the boundary-predictor change
+with `TestControl`, `TestRayCasting` and `TestSimulation`; earlier 70/70 on 2026-10-28 after the
 oracle-boundary CBF cleanup and the compact rescale of
 `scenarios.boxInFrontOfWall`). Desktop
 graphics replay of `scenarios.movingPair()` and `scenarios.boxInFrontOfWall()`
 remains unrun (headless-only verification).
 
-An explicitly labeled oracle `BoundarySource` (`control.makeOracleBoundarySource`),
-built from a scenario's own obstacles outside `simulation.runScenario` and
-re-cast per queried pose, is permitted as the `control.makeSignedDistanceCbfPolicy`
-baseline ahead of the EKF. The runner still passes policies only the
-observation; obstacles never flow through that seam. The policy's fallback
+`control.makeSignedDistanceCbfPolicy` requires a `BoundaryPredictor`,
+`boundary = predictor(belief, pose)`. The explicitly labeled oracle predictor
+(a closure over `fov.visibleBoundaryAt`), built from a scenario's own
+obstacles outside `simulation.runScenario` and re-cast per queried pose, is
+the baseline ahead of the EKF; it must never reach an estimator. The
+methodology transport predictor `estimation.predictBoundaryByTransport` is a
+placeholder that errors. The frozen-belief boundary was removed. The runner
+still passes policies only the observation; obstacles never flow through
+that seam. The policy's fallback
 paths (invalid geometry, unusable gradient, zero control authority, QP
 failure) now return the reference clipped to the input bounds, not a zero
 command, so a nonzero nominal does not cause stop-go motion.

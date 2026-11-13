@@ -43,8 +43,10 @@ for index = 1:size(centers, 1)
 end
 scenario.Obstacles = [obstacles{:}];
 
-scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy(struct( ...
-    'BoundarySource', control.makeOracleBoundarySource(scenario.Obstacles, ...
-    scenario.Observer.Fov, scenario.Sensor.NumRays)));
+% Oracle baseline predictor: re-cast the true obstacles at each queried pose.
+oraclePredictor = @(belief, pose) fov.visibleBoundaryAt( ...
+    pose, scenario.Observer.Fov, scenario.Obstacles, scenario.Sensor.NumRays);
+scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy( ...
+    struct('BoundaryPredictor', oraclePredictor));
 scenario.Playback.Bounds = [-0.5, 2.5, -1.5, 1.5];
 end

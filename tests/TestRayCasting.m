@@ -240,6 +240,17 @@ classdef TestRayCasting < matlab.unittest.TestCase
                 'fov:boundaryFromRanges:InvalidIsJump');
         end
 
+        function visibleBoundaryAtMatchesCastFromThatPose(testCase)
+            spec = fov.FovSpec(10, pi/2);
+            wall = fov.polygonObstacle('wall', [4, -2; 4, 2; 4.3, 2; 4.3, -2]);
+            observer = fov.Observer('Position', [1, 0.5], 'Heading', 0.2, 'Fov', spec);
+            cast = fov.castRays(observer, wall, 'NumRays', 21);
+
+            boundary = fov.visibleBoundaryAt([1; 0.5; 0.2], spec, wall, 21);
+
+            verifyEqual(testCase, boundary, cast.VisibleBoundary);
+        end
+
         function isPointVisibleChecksRangeApertureAndOcclusion(testCase)
             pose = [0, 0, 0];
             spec = fov.FovSpec(10, pi/2);

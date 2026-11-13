@@ -29,17 +29,25 @@ For the CBF-QP experiment, use `scenarios.controlTest()` or
 front of a wall, 2 m FoV, leader at 0.1 m/s), `scenarios.clutteredField()`
 (small posts scattered around a slow leader's path, loosely after the
 VisCoNetwork cluttered environment), or configure
-`control.makeSignedDistanceCbfPolicy()` on a moving-pair scenario. It
-requires MATLAB Optimization Toolbox (`quadprog`) and is an experimental sampled-polygon baseline, not a safety guarantee or controller
-redesign. By default the barrier is built from the current frozen belief
-polygon (now evaluated directly in world frame). Passing
-`config.BoundarySource = control.makeOracleBoundarySource(obstacles, fovSpec,
-numRays)` switches to an oracle re-cast boundary, built from the scenario's
-own obstacles outside the runner (the runner still only ever passes policies
-the observation) — the baseline both built-in control scenarios now use ahead
-of the boundary EKF. Every fallback path (invalid geometry, unusable
-gradient, zero control authority, QP failure) returns the reference clipped
-to the input bounds, not a zero command.
+`control.makeSignedDistanceCbfPolicy(config)` on a moving-pair scenario (see
+`scripts/runMovingPair.m`). It requires MATLAB Optimization Toolbox
+(`quadprog`) and is an experimental sampled-polygon baseline, not a safety
+guarantee or controller redesign. `config.BoundaryPredictor` is required:
+`boundary = predictor(belief, pose)` gives the world-frame visible polygon
+from a queried pose, used for the barrier and its gradient. The baseline is
+the oracle predictor
+
+```matlab
+oraclePredictor = @(belief, pose) fov.visibleBoundaryAt( ...
+    pose, scenario.Observer.Fov, scenario.Obstacles, scenario.Sensor.NumRays);
+```
+
+built from the scenario's own obstacles outside the runner (the runner still
+only passes policies the observation). The methodology's transport predictor,
+`estimation.predictBoundaryByTransport`, is a placeholder that errors until
+it is implemented. Every fallback path (invalid geometry, unusable gradient,
+zero control authority, QP failure) returns the reference clipped to the
+input bounds, not a zero command.
 
 ## Structure
 
@@ -160,7 +168,9 @@ archive.
 
 The full suite (`runtests('tests')`) passed 70/70 on 2026-11-12, after the
 vectorized ray cast and self-intersection check (the follow-up ray-cast
-cleanup was rerun only with `TestRayCasting` and `TestMetrics`), and before
+cleanup was rerun only with `TestRayCasting` and `TestMetrics`, and the
+boundary-predictor change only with `TestControl`, `TestRayCasting` and
+`TestSimulation`), and before
 that on 2026-10-27 after the
 oracle-boundary simulation/control cleanup (depth-jump step construction,
 `fov.isPointVisible`, the oracle `BoundarySource` seam, least-squares
