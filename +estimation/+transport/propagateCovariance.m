@@ -1,5 +1,5 @@
 function [covariance, F, Q] = propagateCovariance(belief, prediction, params)
-%PROPAGATECOVARIANCE Predicted covariance Sigma_bar = F*Sigma*F' + Q (eqs. 3, 6).
+%PROPAGATECOVARIANCE Predicted covariance Sigma_bar = F*Sigma*F' + Q (eqs. 3, 6, 11).
 %
 %   [covariance, F, Q] = estimation.transport.propagateCovariance( ...
 %       belief, prediction, params)
@@ -11,7 +11,7 @@ function [covariance, F, Q] = propagateCovariance(belief, prediction, params)
 % (estimation.transport.relativeMotion/transportEndpoints/classifyPairs),
 % then builds the Jacobian F from prediction's per-beam provenance
 % (FromIndex, FromWeight; see estimation.transportBoundary) and the process
-% noise Q from the labels.
+% noise Q from the labels and the eq. 8 jump-pair corners.
 %
 % F, one row per beam i:
 %   - a two-index row (FromIndex(i, :) = [a, b], weight w = FromWeight(i)):
@@ -32,10 +32,20 @@ function [covariance, F, Q] = propagateCovariance(belief, prediction, params)
 %
 % Q (diagonal), Qii:
 %   - a surface beam with a return (blend/overlap/edge): q0 + qv*|dp|^2 +
-%     qw*dpsi^2 (eq. 6's motion terms; the edge term qe,i is added by the
-%     covariance-stage commit that completes eq. 6).
-%   - otherwise (no return, "disoccluded" or "new"): the same motion floor,
-%     pending each hypothesis's own variance (added by the same commit).
+%     qw*dpsi^2 + qe,i (eq. 6). qe,i = (rho_f - rho_n)^2 / 4 (eq. 8's error
+%     order) is added on beams within half a beam spacing of a jump pair's
+%     transported corner c (strictly, |theta_i - angle(c)| < dtheta/2); if
+%     several jump-pair corners qualify for the same beam, the largest
+%     qe,i wins. rho_f is the far point's transported range, or MaxRange
+%     when the far point has no return.
+%   - a beam with no final return (label "no-return", or clamped beyond
+%     MaxRange): the same q0 + qv*|dp|^2 + qw*dpsi^2, without qe,i -- a
+%     confident "open", not a measured edge.
+%   - "disoccluded": (FarRange - ShadowRange)^2 / 12 + q0 (eq. 11's
+%     uniform-interval variance).
+%   - "new": sigma0^2 + (kappa * mu_bar_i * delta_i)^2 (sec. 4.7), sigma0 =
+%     NewBeamSigmaFraction * MaxRange, delta_i = |theta_i - phi_k| the
+%     angular distance to the old point k = FromIndex(i, 1) the fill used.
 %
 % Sigma_bar = F*Sigma*F' + Q, symmetrised ((Sigma_bar + Sigma_bar')/2); kept
 % full (interpolation correlates neighbouring beams).
@@ -43,15 +53,54 @@ function [covariance, F, Q] = propagateCovariance(belief, prediction, params)
 angles = prediction.Angles(:);
 numBeams = numel(angles);
 oldMean = belief.Mean(:);
+hasReturnOld = belief.HasReturn(:);
+maxRange = belief.MaxRange;
 
 [deltaP, deltaPsi] = estimation.transport.relativeMotion( ...
     belief.ObserverPose, prediction.ObserverPose);
 endpoints = estimation.transport.transportEndpoints( ...
     angles, oldMean, full(diag(belief.Covariance)), deltaP, deltaPsi);
+pairs = estimation.transport.classifyPairs(endpoints, hasReturnOld, params);
 
 qBase = params.ProcessNoiseFloor + params.TranslationNoise * (deltaP.' * deltaP) ...
     + params.RotationNoise * deltaPsi ^ 2;
-Qdiag = qBase * ones(numBeams, 1);
+
+% Eq. 8's edge term qe,i: for each jump pair, the same mid-beam corner
+% estimate estimation.transport.edgeAndShadowCandidates uses, widened here
+% only to its bearing, to flag beams within half a beam spacing of it.
+beamSpacing = mean(diff(angles));
+qEdge = zeros(numBeams, 1);
+jumpPairIndices = find(pairs.IsJumpPair);
+for p = 1:numel(jumpPairIndices)
+    j = jumpPairIndices(p);
+    if pairs.ReturnA(j) && pairs.ReturnB(j)
+        isANear = oldMean(j) <= oldMean(j + 1);
+    else
+        isANear = pairs.ReturnA(j);
+    end
+    if isANear
+        thetaNear = angles(j); muNear = oldMean(j); nIndex = j; fIndex = j + 1;
+    else
+        thetaNear = angles(j + 1); muNear = oldMean(j + 1); nIndex = j + 1; fIndex = j;
+    end
+    thetaFar = angles(j) + angles(j + 1) - thetaNear;
+    thetaStar = (thetaNear + thetaFar) / 2;
+    rotation = [cos(-deltaPsi), -sin(-deltaPsi); sin(-deltaPsi), cos(-deltaPsi)];
+    corner = (muNear * [cos(thetaStar), sin(thetaStar)] - deltaP.') * rotation.';
+    cornerBearing = atan2(corner(2), corner(1));
+
+    rhoFar = endpoints.Rho(fIndex);
+    if ~hasReturnOld(fIndex)
+        rhoFar = maxRange;
+    end
+    candidateQe = (rhoFar - endpoints.Rho(nIndex)) ^ 2 / 4;
+
+    angularOffset = mod(angles - cornerBearing + pi, 2 * pi) - pi;
+    nearCorner = abs(angularOffset) < beamSpacing / 2;
+    qEdge(nearCorner) = max(qEdge(nearCorner), candidateQe);
+end
+
+sigma0 = params.NewBeamSigmaFraction * maxRange;
 
 % F has at most two nonzero entries per row; preallocate for the worst case
 % (every beam a blend/overlap row) and trim the unused tail.
@@ -59,11 +108,26 @@ rows = zeros(2 * numBeams, 1);
 cols = zeros(2 * numBeams, 1);
 vals = zeros(2 * numBeams, 1);
 numEntries = 0;
+Qdiag = zeros(numBeams, 1);
 for i = 1:numBeams
-    if ~prediction.HasReturn(i) || prediction.Label(i) == "disoccluded" ...
-            || prediction.Label(i) == "new"
+    if prediction.Label(i) == "disoccluded"
+        Qdiag(i) = (prediction.FarRange(i) - prediction.ShadowRange(i)) ^ 2 / 12 ...
+            + params.ProcessNoiseFloor;
         continue;
     end
+    if prediction.Label(i) == "new"
+        k = prediction.FromIndex(i, 1);
+        delta = abs(mod(angles(i) - endpoints.Phi(k) + pi, 2 * pi) - pi);
+        Qdiag(i) = sigma0 ^ 2 + (params.NewBeamSlope * prediction.Mean(i) * delta) ^ 2;
+        continue;
+    end
+    if ~prediction.HasReturn(i)
+        Qdiag(i) = qBase;
+        continue;
+    end
+    % A surface beam (blend/overlap/edge) with a return: F row from
+    % FromIndex/FromWeight, Q with the edge term.
+    Qdiag(i) = qBase + qEdge(i);
     a = prediction.FromIndex(i, 1);
     b = prediction.FromIndex(i, 2);
     if isnan(b)

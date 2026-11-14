@@ -17,6 +17,58 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-14 status note: transport covariance propagation (P6)
+
+Implemented `estimation.transport.propagateCovariance(belief, prediction,
+params)` (plan §4.9's permanent F check; methodology §1.2 eqs. 3-6, 11):
+`Sigma_bar = F*Sigma*F' + Q`, built from provenance (`FromIndex`,
+`FromWeight`) that `estimation.transportBoundary`'s stages now record per
+beam. It is called only by the future EKF's `Predict`;
+`estimation.transportBoundary` and `estimation.predictBoundaryByTransport`
+stay mean-only, confirmed unchanged (`Mean`, `HasReturn`, `Label`,
+`ShadowRange`, `FarRange`) on 900 randomized cases across
+`openRoom`/`boxInFrontOfWall`/`clutteredField`, with and without
+measurement noise or a nonzero input covariance.
+
+- **F (eqs. 3-5):** a blend/overlap beam's two-entry row, an edge beam's
+  single-entry row, zero otherwise (disoccluded, new, no-return, or any
+  beam clamped to `MaxRange`). The permanent finite-difference check
+  (perturbing each old mean by ±1e-6, central difference, on surface beams
+  whose label/provenance/`HasReturn` survive the perturbation) measured a
+  max error of 3.7e-10 across `openRoom`/`boxInFrontOfWall`,
+  rotation-only, translation-only and mixed motions up to ~2 beam
+  spacings; eq. 5 as derived (no sign flip) matches.
+- **Q (eq. 6):** the motion floor `q0 + qv|dp|^2 + qw*dpsi^2` on every
+  beam, plus the eq. 8 edge term `qe,i = (rho_f - rho_n)^2/4` on beams
+  within half a beam spacing of a jump pair's transported corner.
+- **Hypothesis variances:** disoccluded beams, `(FarRange -
+  ShadowRange)^2/12 + q0` (eq. 11); newly-explored beams, `sigma0^2 +
+  (kappa*mu_bar*delta)^2` (sec. 4.7), `sigma0 = NewBeamSigmaFraction *
+  MaxRange`; both, and no-return beams, have zero cross-covariance with
+  the rest of `Sigma_bar` (checked with a nonzero, spatially-correlated
+  input covariance).
+- **Long run, no correction:** starting from `0.01^2 * I` and the
+  noiseless `boxInFrontOfWall` scan as the mean, 20 successive 2 cm / 1°
+  steps feeding `Sigma_bar` back as the next prior: `Sigma_bar` stayed
+  exactly symmetric after symmetrisation and positive semidefinite
+  throughout (min/max eigenvalue ratio ~1e-4, well above the `-1e-12`
+  floor); the mean beam variance rose from the initial 1e-4 m^2 to about
+  0.01-0.02 m^2 over the first several steps as hypothesis beams mixed in,
+  then stayed in the 0.008-0.02 m^2 range.
+- **Timing (N = 81):** `propagateCovariance` costs about 2x
+  `transportBoundary` per call (measured ~2.5e-4 s vs ~4.9e-4 s); neither
+  `transportBoundary` nor `predictBoundaryByTransport` call it, so the CBF
+  policy's per-step cost is unaffected.
+- `params.ProcessNoiseFloor`, `TranslationNoise`, `RotationNoise`,
+  `NewBeamSigmaFraction` and `NewBeamSlope` are starting values (plan
+  §4.8), to be tuned by the normalised error per beam once the EKF correct
+  step exists (stage 6).
+
+Verified: `TestTransport` 30/30; full suite `runtests('tests')` 109/109
+(headless). Not verified: desktop graphics (unchanged by this commit, so
+still as last recorded below); the NEES-based tuning of the new
+parameters, which needs the EKF correct step.
+
 ## 0. 2026-11-14 status note: input-rate penalty and side-by-side replay
 
 The CBF-QP cost now includes `(u − u_prev)ᵀR(u − u_prev)`, with

@@ -73,10 +73,14 @@ it.
 transport core `predictBoundaryByTransport` wraps: it moves `belief.Mean` to
 a hypothetical pose and resamples it onto the fixed beam grid
 (`docs/metodologia.pdf` §1.2, eqs. 1-2 and 7-11), labelling each beam
-blend/overlap/edge/disoccluded/no-return/new. `scenarios.openRoom()` (plan
+blend/overlap/edge/disoccluded/no-return/new and recording each beam's
+provenance (`FromIndex`, `FromWeight`). `scenarios.openRoom()` (plan
 scenario S1) and `scenarios.boxInFrontOfWall()` (edges, overlap, disocclusion)
-exercise it; see `scripts/checkTransport.m` and `viz.plotTransportCheck`. It
-does not yet propagate covariance.
+exercise it; see `scripts/checkTransport.m` and `viz.plotTransportCheck`.
+`estimation.transport.propagateCovariance(belief, prediction, params)` uses
+that provenance to build `Sigma_bar = F*Sigma*F' + Q` (eqs. 3-6, 11); only
+the future EKF's `Predict` step calls it, so `transportBoundary` and
+`predictBoundaryByTransport` stay mean-only.
 
 ## Structure
 
