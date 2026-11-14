@@ -13,23 +13,22 @@ function prediction = transportBoundary(belief, pose, params)
 %
 % Each stage is one function in estimation.transport:
 %
-%   relativeMotion            Delta p, Delta psi in the old sensor frame
-%   transportEndpoints        old endpoints into the new frame (eq. 1)
-%   classifyPairs              same surface, open pair, or jump (eq. 7)
-%   resampleOntoBeams          blend/overlap within surfaces, open space (eq. 2)
-%   edgeAndShadowCandidates    edges and new occlusions/disocclusions (eqs. 8-10)
-%   fillUncoveredBeams         newly explored beams (sec. 4.7)
+%   relativeMotion              Delta p, Delta psi in the old sensor frame
+%   transportEndpoints          old endpoints into the new frame (eq. 1)
+%   classifyPairs                same surface, open pair, or jump (eq. 7)
+%   resampleOntoBeams            blend/overlap within surfaces, open space (eq. 2)
+%   edgeAndShadowCandidates      edges and new occlusions/disocclusions (eqs. 8-10)
+%   applyFreeSpaceHypothesis     free-space blend behind a disocclusion (eq. 11)
+%   fillUncoveredBeams           newly explored beams (sec. 4.7)
 %
 % prediction has Mean, HasReturn, IsSupported and Label per beam ("blend",
 % "overlap", "edge", "disoccluded", "no-return" or "new"), plus ShadowRange
-% (s_i, NaN off disoccluded beams), Angles and ObserverPose = pose.
-% IsSupported is false only for "disoccluded" and "new" (decision D3):
-% hypothesis beams, not evidence, even though the predicted mean covers
-% every beam regardless (plan sec. 4.10).
+% (s_i) and FarRange (r_far,i), both NaN off disoccluded beams, Angles and
+% ObserverPose = pose. IsSupported is false only for "disoccluded" and "new"
+% (decision D3): hypothesis beams, not evidence, even though the predicted
+% mean covers every beam regardless (plan sec. 4.10).
 %
-% Not yet handled (later checkpoints): the free-space fraction eta behind a
-% disocclusion (eq. 11; the disoccluded candidate is temporarily the
-% conservative limit s_i) and covariance propagation (F, Q).
+% Not yet handled (later checkpoints): covariance propagation (F, Q).
 
 if belief.OpeningAngle == 2*pi
     error('estimation:transportBoundary:FullFovUnsupported', ...
@@ -48,10 +47,13 @@ endpoints = estimation.transport.transportEndpoints( ...
 pairs = estimation.transport.classifyPairs(endpoints, hasReturnOld, params);
 [predictedMean, hasReturn, label] = ...
     estimation.transport.resampleOntoBeams(angles, pairs, maxRange, params);
-[predictedMean, hasReturn, label, shadowRange] = ...
+[predictedMean, hasReturn, label, shadowRange, nearIndex, farIndex] = ...
     estimation.transport.edgeAndShadowCandidates(angles, pairs, endpoints, ...
         oldMean, hasReturnOld, deltaP, deltaPsi, ...
         predictedMean, hasReturn, label, maxRange, params);
+[predictedMean, farRange] = estimation.transport.applyFreeSpaceHypothesis( ...
+    angles, pairs, endpoints, hasReturnOld, nearIndex, farIndex, ...
+    shadowRange, label, predictedMean, maxRange, params);
 [predictedMean, hasReturn] = estimation.transport.fillUncoveredBeams( ...
     angles, predictedMean, hasReturn, label, maxRange, params);
 
@@ -70,6 +72,7 @@ prediction.HasReturn = hasReturn;
 prediction.IsSupported = isSupported;
 prediction.Label = label;
 prediction.ShadowRange = shadowRange;
+prediction.FarRange = farRange;
 prediction.Angles = angles;
 prediction.ObserverPose = reshape(double(pose), 1, 3);
 end

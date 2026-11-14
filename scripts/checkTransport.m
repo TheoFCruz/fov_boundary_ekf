@@ -24,3 +24,18 @@ translationTruth = sensing.raycastScan(translationPose, scenario.Observer.Fov, .
     scenario.Obstacles, scenario.Sensor, 0);
 translationPrediction = estimation.transportBoundary(belief, translationPose, params);
 viz.plotTransportCheck(translationPrediction, translationTruth);
+
+% A sideways-slide case in boxInFrontOfWall (eqs. 8-11): the box's near
+% surface slides across the wall behind it, producing edge, overlap and
+% disoccluded beams, with s_i and r_far,i markers on the disoccluded ones.
+boxScenario = scenarios.boxInFrontOfWall();
+boxPoseA = boxScenario.Observer.InitialPose;
+boxScanA = sensing.raycastScan(boxPoseA, boxScenario.Observer.Fov, ...
+    boxScenario.Obstacles, boxScenario.Sensor, 0);
+boxState = estimator.Initialize(struct());
+[~, boxBelief] = estimator.Correct(boxState, boxScanA);
+slidePose = boxPoseA + [0, 0.06, 0];
+slideTruth = sensing.raycastScan(slidePose, boxScenario.Observer.Fov, ...
+    boxScenario.Obstacles, boxScenario.Sensor, 0);
+slidePrediction = estimation.transportBoundary(boxBelief, slidePose, params);
+viz.plotTransportCheck(slidePrediction, slideTruth);

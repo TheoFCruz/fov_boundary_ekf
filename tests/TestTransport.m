@@ -297,6 +297,9 @@ classdef TestTransport < matlab.unittest.TestCase
             % crossing each beam (eq. 10) gives s = 1.336674 at theta =
             % -0.1 rad and s = 3.996666 at theta = 0 rad, both with t > 0
             % (disoccluded); verified against the function's ShadowRange.
+            % Both beams' far side (old index 7) has no return, so
+            % r_far = MaxRange = 5 (eq. 11) and, with the baseline
+            % eta = 0.5, mu_bar = s + 0.5 * (5 - s): 3.168337 and 4.498333.
             belief = isolatedPostBelief();
             pose = [0, 0.2, 0];
             prediction = estimation.transportBoundary( ...
@@ -304,10 +307,55 @@ classdef TestTransport < matlab.unittest.TestCase
 
             verifyEqual(testCase, prediction.Label(5), "disoccluded");
             verifyEqual(testCase, prediction.ShadowRange(5), 1.336674, 'AbsTol', 1e-5);
-            verifyEqual(testCase, prediction.Mean(5), prediction.ShadowRange(5));
+            verifyEqual(testCase, prediction.FarRange(5), 5, 'AbsTol', 1e-9);
+            verifyEqual(testCase, prediction.Mean(5), 3.168337, 'AbsTol', 1e-5);
             verifyEqual(testCase, prediction.Label(6), "disoccluded");
             verifyEqual(testCase, prediction.ShadowRange(6), 3.996666, 'AbsTol', 1e-5);
-            verifyEqual(testCase, prediction.Mean(6), prediction.ShadowRange(6));
+            verifyEqual(testCase, prediction.FarRange(6), 5, 'AbsTol', 1e-9);
+            verifyEqual(testCase, prediction.Mean(6), 4.498333, 'AbsTol', 1e-5);
+        end
+
+        function freeSpaceFractionBlendsExactlyAtEtaExtremes(testCase)
+            % Eq. 11 on the isolated-post belief (same corner as the
+            % hand-computed test above): with f (old index 7) no-return,
+            % r_far = MaxRange = 5 for beam 5's disocclusion (s = 1.336674).
+            % eta = 0 must give exactly s (the conservative seen-free
+            % limit, source (iv)); eta = 1 must give exactly r_far (nothing
+            % between the corner and the background); eta = 0.5 the
+            % midpoint. Eta = 0 depending only on s, never on r_far, is the
+            % formal sense in which the conservative hypothesis is blind to
+            % what lies behind the corner (methodology sec. 1.2,
+            % "Desoclusões": a fixed seen-free limit cannot reveal the
+            % background, so it carries no gradient).
+            belief = isolatedPostBelief();
+            pose = [0, 0.2, 0];
+            baseParams = estimation.defaultTransportParams();
+            s = 1.336674;
+            rFar = 5;
+
+            for eta = [0, 0.5, 1]
+                params = baseParams;
+                params.FreeSpaceFraction = eta;
+                prediction = estimation.transportBoundary(belief, pose, params);
+                expected = s + eta * (rFar - s);
+                verifyEqual(testCase, prediction.Mean(5), expected, 'AbsTol', 1e-5);
+            end
+        end
+
+        function farRangeMatchesFlatWallGeometry(testCase)
+            % Hand-checked r_far: in boxInFrontOfWall the wall's front face
+            % is the flat line x = 1.8, so along a beam at relative angle
+            % theta the true range to it is 1.8 / cos(theta). Beam 44
+            % (3.75 deg) disoccludes behind the box when slid 0.06 m
+            % sideways; its r_far must match that flat-wall formula.
+            [belief, scenario] = boxInFrontOfWallBelief();
+            pose = scenario.Observer.InitialPose + [0, 0.06, 0];
+            prediction = estimation.transportBoundary( ...
+                belief, pose, estimation.defaultTransportParams());
+
+            verifyEqual(testCase, prediction.Label(44), "disoccluded");
+            expectedFarRange = 1.8 / cos(prediction.Angles(44));
+            verifyEqual(testCase, prediction.FarRange(44), expectedFarRange, 'AbsTol', 1e-3);
         end
 
         function boxInFrontOfWallGapNeverBridgedExceptDisoccluded(testCase)
@@ -428,6 +476,18 @@ classdef TestTransport < matlab.unittest.TestCase
             verifyEqual(testCase, string(get(handles.Figure, 'Visible')), "off");
             verifyError(testCase, @() viz.plotTransportCheck(prediction, truth, ...
                 'Visible', 1), 'viz:plotTransportCheck:InvalidOption');
+
+            % Also exercise the disoccluded-beam branch (s_i/r_far,i markers,
+            % eq. 11), as scripts/checkTransport.m's sideways-slide case does.
+            [boxBelief, boxScenario] = boxInFrontOfWallBelief();
+            boxPose = boxScenario.Observer.InitialPose + [0, 0.06, 0];
+            boxTruth = sensing.raycastScan(boxPose, boxScenario.Observer.Fov, ...
+                boxScenario.Obstacles, boxScenario.Sensor, 0);
+            boxPrediction = estimation.transportBoundary( ...
+                boxBelief, boxPose, estimation.defaultTransportParams());
+            verifyGreaterThan(testCase, sum(boxPrediction.Label == "disoccluded"), 0);
+            boxHandles = viz.plotTransportCheck(boxPrediction, boxTruth, 'Visible', false);
+            testCase.addTeardown(@() close(boxHandles.Figure));
         end
     end
 end

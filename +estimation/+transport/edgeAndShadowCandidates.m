@@ -1,12 +1,16 @@
-function [predictedMean, hasReturn, label, shadowRange] = edgeAndShadowCandidates( ...
-        angles, pairs, endpoints, oldMean, hasReturnOld, deltaP, deltaPsi, ...
-        predictedMean, hasReturn, label, maxRange, params)
+function [predictedMean, hasReturn, label, shadowRange, nearIndex, farIndex] = ...
+        edgeAndShadowCandidates(angles, pairs, endpoints, oldMean, hasReturnOld, ...
+        deltaP, deltaPsi, predictedMean, hasReturn, label, maxRange, params)
 %EDGEANDSHADOWCANDIDATES Resolve "gap" beams into edge or disocclusion candidates.
 %
-%   [predictedMean, hasReturn, label, shadowRange] = ...
+%   [predictedMean, hasReturn, label, shadowRange, nearIndex, farIndex] = ...
 %       estimation.transport.edgeAndShadowCandidates(angles, pairs, ...
 %       endpoints, oldMean, hasReturnOld, deltaP, deltaPsi, predictedMean, ...
 %       hasReturn, label, maxRange, params)
+%
+% nearIndex/farIndex are the winning jump pair's old-grid indices n and f
+% (NaN off disoccluded beams), for estimation.transport.applyFreeSpaceHypothesis
+% to find f's same-surface neighbour f' when filling r_far.
 %
 % Beams labelled "gap" by resampleOntoBeams are bracketed only by jump pairs
 % (methodology sec. 1.2, "Arestas" and "Oclusões novas"/"Desoclusões",
@@ -66,10 +70,12 @@ end
 bestValue = nan(numBeams, 1);
 bestType = strings(numBeams, 1);
 bestShadow = nan(numBeams, 1);
+bestNear = nan(numBeams, 1);
+bestFar = nan(numBeams, 1);
 jumpPairIndices = find(pairs.IsJumpPair);
 for p = 1:numel(jumpPairIndices)
     j = jumpPairIndices(p);
-    [thetaNear, muNear, rhoNear] = nearPairSide(angles, oldMean, pairs, j);
+    [thetaNear, muNear, rhoNear, nIndex, fIndex] = nearPairSide(angles, oldMean, pairs, j);
     thetaFar = angles(j) + angles(j + 1) - thetaNear;
     thetaStar = (thetaNear + thetaFar) / 2;
 
@@ -100,6 +106,8 @@ for p = 1:numel(jumpPairIndices)
             bestValue(i) = candidateValue;
             bestType(i) = candidateType;
             bestShadow(i) = candidateShadow;
+            bestNear(i) = nIndex;
+            bestFar(i) = fIndex;
         end
     end
 end
@@ -109,6 +117,8 @@ predictedMean(resolved) = bestValue(resolved);
 hasReturn(resolved) = true;
 label(resolved) = bestType(resolved);
 shadowRange(resolved) = bestShadow(resolved);
+nearIndex = bestNear;
+farIndex = bestFar;
 
 % No jump pair gave a usable candidate (parallel beam, or none bracket it):
 % fall back to newly explored, filled by fillUncoveredBeams.
@@ -118,7 +128,7 @@ hasReturn(stillGap) = false;
 label(stillGap) = "new";
 end
 
-function [thetaNear, muNear, rhoNear] = nearPairSide(angles, oldMean, pairs, j)
+function [thetaNear, muNear, rhoNear, nIndex, fIndex] = nearPairSide(angles, oldMean, pairs, j)
 %NEARPAIRSIDE Pick the jump pair's near side n (decision D2).
 
 if pairs.ReturnA(j) && pairs.ReturnB(j)
@@ -130,10 +140,14 @@ if isANear
     thetaNear = angles(j);
     muNear = oldMean(j);
     rhoNear = pairs.RhoA(j);
+    nIndex = j;
+    fIndex = j + 1;
 else
     thetaNear = angles(j + 1);
     muNear = oldMean(j + 1);
     rhoNear = pairs.RhoB(j);
+    nIndex = j + 1;
+    fIndex = j;
 end
 end
 
