@@ -69,6 +69,7 @@ swappable policy/estimator/boundary-source slots, and a per-file reference.
   +internal/   Low-level geometry helpers
 +sensing/      Measurement-only ray-cast scan adapter
 +estimation/   Replaceable boundary-estimator lifecycle
+  +transport/  Stages of the boundary transport (prediction model)
 +simulation/   Scenario validation, kinematics, causal runner, and logs
 +control/      Observer-policy callbacks and CBF-QP baseline
 +metrics/      Sampled-polygon signed distance

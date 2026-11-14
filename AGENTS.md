@@ -70,6 +70,7 @@ command, so a nonzero nominal does not cause stop-go motion.
   +internal/   Low-level geometry helpers
 +sensing/      Measurement-only adapters, currently raycastScan
 +estimation/   Replaceable boundary-estimator lifecycle
+  +transport/  Stages of the boundary transport (prediction model)
 +simulation/   Scenario validation, schedules, kinematics, causal runner/logs
 +control/      Observer-policy callbacks/seam
 +metrics/      Sampled-polygon distance computation

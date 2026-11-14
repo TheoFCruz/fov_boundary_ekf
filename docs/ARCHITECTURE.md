@@ -208,7 +208,10 @@ same fixed grid, labelling each new beam `blend`, `no-return`, `jump-gap`,
 or `new`. It takes the same `(belief, pose)` pair as a `BoundaryPredictor`
 so the still-placeholder `predictBoundaryByTransport` wrapper (building the
 polygon) and the future EKF's `Predict` step (with the real motion instead
-of a hypothetical displacement) can both call it directly. It does not yet
+of a hypothetical displacement) can both call it directly. Each stage is
+one file in `estimation.transport` (listed in §8), so later rules (edges,
+disocclusion, covariance) are added as stages rather than growing one
+function. It does not yet
 propagate covariance, place a corner between a jump pair (eqs. 8-10), or
 apply the free-space disocclusion fraction η (eq. 11); jump gaps are filled
 by the newly-explored rule and labelled `jump-gap` until that lands.
@@ -324,7 +327,12 @@ the policy calls the predictor with hypothetical displacements.
 | File | Role |
 |---|---|
 | `makePassThroughEstimator.m` | `Initialize`/`Predict`/`Correct` handles; belief = latest scan, zero covariance, no-op predict. The EKF will be a sibling `make...Estimator`. |
-| `transportBoundary.m` | Mean-only transport and resampling core (eqs. 1-2, 7): moves `belief.Mean` to a hypothetical pose and labels each new beam blend/no-return/jump-gap/new. |
+| `transportBoundary.m` | Mean-only transport and resampling core (eqs. 1-2, 7): moves `belief.Mean` to a hypothetical pose and labels each new beam blend/no-return/jump-gap/new; calls the `+transport` stages in order. |
+| `+transport/relativeMotion.m` | Δp, Δψ from one pose to another, in the old sensor frame. |
+| `+transport/transportEndpoints.m` | Eq. 1: old endpoints into the new frame (ρ, φ), plus the eq. 4 range variance for the jump test. |
+| `+transport/classifyPairs.m` | Eq. 7: each consecutive old pair is a same surface, an open (no-return) pair, or a jump. |
+| `+transport/resampleOntoBeams.m` | Eq. 2: blend within surfaces (nearest surface wins), keep open space open, label the rest. |
+| `+transport/fillUncoveredBeams.m` | Newly explored and jump-gap beams from the nearest covered beam: extend its surface, or stay open next to open space. |
 | `defaultTransportParams.m` | The eq. 7 jump-test constants (`JumpThreshold`, `JumpRelative`) used by `transportBoundary`. |
 | `predictBoundaryByTransport.m` | Placeholder for the methodology boundary predictor (wraps `transportBoundary`, then builds the polygon from the predicted mean); errors until implemented. |
 

@@ -1,0 +1,90 @@
+function [predictedMean, hasReturn] = fillUncoveredBeams( ...
+        angles, predictedMean, hasReturn, label, maxRange, params)
+%FILLUNCOVEREDBEAMS Fill "new" and "jump-gap" beams from the nearest covered beam.
+%
+%   [predictedMean, hasReturn] = estimation.transport.fillUncoveredBeams( ...
+%       angles, predictedMean, hasReturn, label, maxRange, params)
+%
+% Newly explored beams (methodology sec. 1.2, plan sec. 4.7) have no old
+% point. Covered beams are those resampled from an old pair: a surface
+% ("blend") or open space ("no-return"). The nearest covered beam decides:
+% if it is open, the uncovered beam stays open (maxRange, no return), so no
+% distant surface is extended across open space; if it is a surface, that
+% surface continues: the beam is intersected with the line through the
+% covered beam and its same-surface neighbour (or copies the covered range
+% when there is no such neighbour), saturating at maxRange as no return.
+% Jump-gap beams take the same fill until the edge and disocclusion rules
+% (eqs. 8-11) replace it.
+
+isBlend = label == "blend";
+coveredIndices = find(isBlend | label == "no-return");
+fillIndices = find(label == "jump-gap" | label == "new");
+numBeams = numel(angles);
+for n = 1:numel(fillIndices)
+    i = fillIndices(n);
+    if isempty(coveredIndices)
+        predictedMean(i) = maxRange;
+        hasReturn(i) = false;
+        continue;
+    end
+    theta = angles(i);
+    [~, nearestPosition] = min(abs(angles(coveredIndices) - theta));
+    k = coveredIndices(nearestPosition);
+
+    % Next to open space the beam stays open: never extend a distant surface.
+    if ~isBlend(k)
+        predictedMean(i) = maxRange;
+        hasReturn(i) = false;
+        continue;
+    end
+
+    % The neighbour on the covered side of k (away from the uncovered beam)
+    % continues the same surface if it is also a blended return and passes
+    % the eq. 7 range test (mean only here, so without the variance term).
+    if angles(k) < theta
+        neighborIndex = k - 1;
+    else
+        neighborIndex = k + 1;
+    end
+    hasNeighbor = neighborIndex >= 1 && neighborIndex <= numBeams ...
+        && isBlend(neighborIndex);
+    if hasNeighbor
+        rangeK = predictedMean(k);
+        rangeNeighbor = predictedMean(neighborIndex);
+        sameSurfaceBound = max( ...
+            params.JumpThreshold, params.JumpRelative * min(rangeK, rangeNeighbor));
+        hasNeighbor = abs(rangeK - rangeNeighbor) <= sameSurfaceBound;
+    end
+
+    candidateRange = predictedMean(k);
+    if hasNeighbor
+        pointK = predictedMean(k) * [cos(angles(k)), sin(angles(k))];
+        pointNeighbor = predictedMean(neighborIndex) ...
+            * [cos(angles(neighborIndex)), sin(angles(neighborIndex))];
+        direction = pointNeighbor - pointK;
+        rayDirection = [cos(theta), sin(theta)];
+        denominator = cross2(rayDirection, direction);
+        % Skip an (almost) parallel line: no useful crossing.
+        if abs(denominator) > 1e-9
+            crossingRange = cross2(pointK, direction) / denominator;
+            if crossingRange > 0
+                candidateRange = crossingRange;
+            end
+        end
+    end
+
+    if candidateRange >= maxRange
+        predictedMean(i) = maxRange;
+        hasReturn(i) = false;
+    else
+        predictedMean(i) = candidateRange;
+        hasReturn(i) = hasReturn(k);
+    end
+end
+end
+
+function z = cross2(a, b)
+%CROSS2 Scalar z-component of the 2-D cross product a x b.
+
+z = a(1) * b(2) - a(2) * b(1);
+end
