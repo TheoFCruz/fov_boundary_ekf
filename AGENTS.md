@@ -35,9 +35,15 @@ No one document replaces the others. If a change affects a contract,
 architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
-verification honestly. The full suite (`runtests('tests')`) passed 84/84 on
-2026-11-13, after adding the mean-only boundary-transport checkpoint
-(`estimation.transportBoundary`, `scenarios.openRoom`; see `docs/
+verification honestly. The full suite (`runtests('tests')`) passed 97/97 on
+2026-11-14, after checkpoint 2 of the boundary-transport prediction model
+(edges, disocclusion, and the transport predictor, gradient source (ii):
+`estimation.transport.edgeAndShadowCandidates`,
+`estimation.transport.applyFreeSpaceHypothesis`,
+`estimation.predictBoundaryByTransport`, `control.compareGradients`; see
+`docs/IMPLEMENTATION_PLAN.md`'s 2026-11-14 status note for measured results);
+earlier 84/84 on 2026-11-13 after adding the mean-only boundary-transport
+checkpoint (`estimation.transportBoundary`, `scenarios.openRoom`; see `docs/
 IMPLEMENTATION_PLAN.md`'s 2026-11-13 status note for measured errors);
 earlier 70/70 on 2026-11-12 after vectorizing `fov.castRays` and the polygon
 self-intersection check (behavior-preserving; the follow-up ray-cast cleanup
@@ -47,8 +53,8 @@ boundary-predictor change with `TestControl`, `TestRayCasting` and
 oracle-boundary CBF cleanup and the compact rescale of
 `scenarios.boxInFrontOfWall`). Desktop
 graphics replay of `scenarios.movingPair()` and `scenarios.boxInFrontOfWall()`
-remains unrun (headless-only verification); `viz.plotTransportCheck` was
-only smoke-tested invisibly.
+remains unrun (headless-only verification); `viz.plotTransportCheck` and
+`viz.plotGradientComparison` were only smoke-tested invisibly.
 
 `control.makeSignedDistanceCbfPolicy` requires a `BoundaryPredictor`,
 `boundary = predictor(belief, pose)`. The explicitly labeled oracle predictor

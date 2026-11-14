@@ -17,6 +17,67 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-14 status note: edges, disocclusion, and the transport predictor (checkpoint 2)
+
+Implemented, completing checkpoint 2 of `docs/matlab-implementation-plan.md`
+§9's build-order deviation: `estimation.transport.edgeAndShadowCandidates`
+(eqs. 8-10, the mid-beam corner and shadow-edge crossing; decisions D1-D2,
+D4), `estimation.transport.applyFreeSpaceHypothesis` (eq. 11, the free-space
+blend behind a disocclusion; decision D3's `FreeSpaceFraction` baseline
+η = 0.5), and `estimation.predictBoundaryByTransport`, now gradient source
+(ii) rather than a placeholder (decisions D5-D6). `estimation.
+transportBoundary`'s labels are now `blend`, `overlap`, `edge`,
+`disoccluded`, `no-return`, or `new` (the `jump-gap` placeholder label is
+gone); its output adds `IsSupported`, `ShadowRange`, and `FarRange`.
+`control.compareGradients` and `scripts/compareGradientSources.m` give an
+offline, per-step comparison of source (ii) against the oracle on an
+existing run. Not yet implemented: covariance propagation (F, Q) and the
+EKF (sources iii-iv).
+
+Verified: `tests/TestTransport.m` (21/21), `tests/TestControl.m` (22/22),
+and the full suite, `runtests('tests')` (97/97), on 2026-11-14 (headless).
+Zero motion reproduces the belief's mean and `HasReturn` exactly (openRoom,
+boxInFrontOfWall, and a synthetic isolated single-ray surface, decision
+D4). A hand-built corner (an isolated post flanked by open space, slid
+0.2 m sideways) matches hand-computed s_i and r_far,i to the precision of
+an independent recomputation of eqs. 8-11. In `boxInFrontOfWall`, sliding
+the observer ±0.03-0.06 m sideways or 0.03-0.06 m forward never bridges the
+box/wall gap except through a `disoccluded` beam; a 0.06 m slide produces
+an `overlap` beam at the box's own range; a 0.005 m slide resolves the
+box/wall boundary to `edge` beams at the near pair's own transported range.
+`r_far` matches the wall's flat-wall geometry (`1.8 / cos(theta)`) to
+1e-3 m. `estimation.predictBoundaryByTransport` matches
+`fov.boundaryFromRanges` on the belief's own mean at zero motion, and its
+CBF gradient agrees in sign with the oracle's at the three hand-checked
+poses of `docs/matlab-implementation-plan.md` §7.2/stage 7 (corner shadow,
+behind the box face, no-obstacle range arc), with a measured angle of
+17.55 deg at the corner-shadow pose (bounded at 30 deg), |dh/dx| = 0.156
+behind the box face, and |dh/dpsi| ≈ 6e-17 on the range arc with no
+obstacles. Source (ii) runs `boxInFrontOfWall` closed-loop, headless, and
+deterministically (two runs agree exactly).
+
+`scripts/compareGradientSources.m` measured, noiseless (`control.
+compareGradients` against the oracle predictor built from each run's own
+config, plan §8.2):
+
+| Run | TrueVisible fraction | Status counts (nominal/corrected/slack) | Median / 90th pct angle to oracle (deg) |
+|---|---|---|---|
+| Oracle-driven | 1.000 | 77 / 144 / 19 | 25.01 / 152.01 |
+| Source (ii)-driven | 1.000 | 70 / 152 / 18 | 22.21 / 151.73 |
+
+and with `Sensor.RangeNoiseStd = 0.01`, `Seed = 1` (source (ii)-driven):
+TrueVisible fraction 1.000, status counts 73 / 150 / 17, median / 90th pct
+angle 19.50 / 151.59 deg. `TrueVisible` is 1.000 throughout all three runs,
+so the large 90th-percentile angle is not visibility loss; most of the
+high-angle (> 90 deg) steps are themselves `cbf-corrected` (most of the
+run is), so a large gradient-direction disagreement is not confined to
+steps where the constraint is slack or inactive. Characterizing exactly
+when source (ii) and the oracle disagree in direction is future work. Not
+verified: desktop graphics
+(`viz.plotTransportCheck`, `viz.plotGradientComparison`, and
+`scripts/checkTransport.m`'s and `scripts/compareGradientSources.m`'s plots
+were only run headless/smoke-tested invisibly).
+
 ## 0. 2026-11-13 status note: mean-only boundary transport (checkpoint 1)
 
 Implemented, ahead of the staged order in `docs/matlab-implementation-plan.md`

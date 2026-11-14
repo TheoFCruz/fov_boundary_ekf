@@ -40,6 +40,10 @@ angles = belief.Angles(:);
 maxRange = belief.MaxRange;
 oldMean = belief.Mean(:);
 hasReturnOld = belief.HasReturn(:);
+% The CBF policy's gradient fit (control.barrierGradient) queries this with
+% a displaced-pose column vector; relativeMotion needs both poses the same
+% shape as belief.ObserverPose (row), so fix the orientation once here.
+pose = reshape(double(pose), 1, 3);
 
 [deltaP, deltaPsi] = estimation.transport.relativeMotion(belief.ObserverPose, pose);
 endpoints = estimation.transport.transportEndpoints( ...

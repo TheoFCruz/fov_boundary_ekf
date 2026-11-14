@@ -43,20 +43,40 @@ oraclePredictor = @(belief, pose) fov.visibleBoundaryAt( ...
 ```
 
 built from the scenario's own obstacles outside the runner (the runner still
-only passes policies the observation). The methodology's transport predictor,
-`estimation.predictBoundaryByTransport`, is a placeholder that errors until
-it is implemented. Every fallback path (invalid geometry, unusable gradient,
-zero control authority, QP failure) returns the reference clipped to the
-input bounds, not a zero command.
+only passes policies the observation). Every fallback path (invalid geometry,
+unusable gradient, zero control authority, QP failure) returns the reference
+clipped to the input bounds, not a zero command.
+
+The methodology's transport predictor, `estimation.predictBoundaryByTransport`,
+is gradient source (ii) (the latest reading, no EKF): it transports the
+belief mean to the queried pose (`estimation.transportBoundary`, below) and
+builds the polygon from the predicted mean on every beam. Plug it into a
+scenario or a script the same way as the oracle, as a closure over its params:
+
+```matlab
+params = estimation.defaultTransportParams();
+transportPredictor = @(belief, pose) estimation.predictBoundaryByTransport( ...
+    belief, pose, params);
+scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy( ...
+    struct('BoundaryPredictor', transportPredictor));
+```
+
+`scripts/compareGradientSources.m` runs `scenarios.boxInFrontOfWall()` with
+the oracle and with source (ii) and reports the measures of plan §8.2
+(true-visibility fraction, QP status counts, median/90th-percentile angle to
+the oracle gradient); see the dated note in `docs/IMPLEMENTATION_PLAN.md` for
+measured numbers. `control.compareGradients(result, predictor,
+referencePredictor, policyConfig)` is the reusable offline comparison behind
+it.
 
 `estimation.transportBoundary(belief, pose, params)` is the mean-only
-transport core the placeholder above will wrap: it moves `belief.Mean` to a
-hypothetical pose and resamples it onto the fixed beam grid (checkpoint 1 of
-the methodology's prediction step, `docs/metodologia.pdf` §1.2), labelling
-each beam blend/no-return/jump-gap/new. `scenarios.openRoom()` (plan
-scenario S1: an enclosed room with no depth jumps) exercises it; see
-`scripts/checkTransport.m` and `viz.plotTransportCheck`. It does not yet
-propagate covariance or handle disocclusion.
+transport core `predictBoundaryByTransport` wraps: it moves `belief.Mean` to
+a hypothetical pose and resamples it onto the fixed beam grid
+(`docs/metodologia.pdf` §1.2, eqs. 1-2 and 7-11), labelling each beam
+blend/overlap/edge/disoccluded/no-return/new. `scenarios.openRoom()` (plan
+scenario S1) and `scenarios.boxInFrontOfWall()` (edges, overlap, disocclusion)
+exercise it; see `scripts/checkTransport.m` and `viz.plotTransportCheck`. It
+does not yet propagate covariance.
 
 ## Structure
 

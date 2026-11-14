@@ -1,29 +1,42 @@
-function boundary = predictBoundaryByTransport(belief, pose) %#ok<INUSD>
-%PREDICTBOUNDARYBYTRANSPORT Methodology boundary predictor (placeholder).
+function boundary = predictBoundaryByTransport(belief, pose, params)
+%PREDICTBOUNDARYBYTRANSPORT Methodology boundary predictor (gradient source ii).
 %
-%   boundary = estimation.predictBoundaryByTransport(belief, pose)
+%   boundary = estimation.predictBoundaryByTransport(belief, pose, params)
 %
-% Not implemented. This is the boundary predictor the methodology prescribes
-% for the CBF gradient (docs/metodologia.pdf, sections 1.2 and 1.4), with the
-% same signature as the oracle predictor the scenarios build from
-% fov.visibleBoundaryAt:
+% The boundary predictor the methodology prescribes for the CBF gradient
+% (docs/metodologia.pdf secs. 1.2, 1.4): transport belief.Mean from
+% belief.ObserverPose to pose with estimation.transportBoundary (eqs. 1-2,
+% 7-11), then build the world-frame visible polygon from the predicted mean
+% on every beam, regardless of IsSupported (plan sec. 4.10: the hypothesis
+% beams disocclusion and new-FoV fill are exactly what the CBF gradient
+% needs, so the polygon is a predicted boundary for the gradient, not a
+% visibility claim). Decision D6: a predicted pair is a jump (and gets the
+% conservative radial step instead of a chord, fov.boundaryFromRanges) when
+% |mu_bar_i - mu_bar_{i+1}| exceeds max(JumpThreshold, JumpRelative *
+% min(mu_bar_i, mu_bar_{i+1})) or HasReturn differs between the two beams.
 %
-%   1. Transport the belief mean from belief.ObserverPose to pose (known
-%      motion dp, dpsi in the old sensor frame) and resample it onto the
-%      fixed beam angles (eqs. 1-2). Interpolate only within one surface
-%      (edge test, eq. 7); place each edge's corner at the mid-beam angle
-%      (eqs. 8-10); take the nearest pair for new occlusions; fill
-%      disoccluded beams with the free-space hypothesis
-%      mu = s + eta * (r_far - s) (eq. 11); extend surfaces into newly
-%      explored beams. This is the same transport the boundary EKF's Predict
-%      will use; the covariance it carries feeds the edge test, not the
-%      barrier.
-%   2. Return the world-frame visible polygon built from the predicted mean
-%      seen from pose. The barrier uses the expected boundary, not a
-%      confidence bound such as mu - kappa * sigma (section 1.4).
+% This has the same (belief, pose) signature as the oracle predictor
+% scenarios build from fov.visibleBoundaryAt; a scenario or script plugs it
+% into a CBF policy with a closure over params,
 %
-% Until it exists, scenarios use the oracle predictor as the baseline.
+%   predictor = @(belief, pose) estimation.predictBoundaryByTransport( ...
+%       belief, pose, params);
+%
+% exactly as the oracle closure captures its FovSpec and obstacles
+% (decision D5). This is source (ii) (methodology sec. 1.5): the latest
+% reading, with the pass-through estimator and no covariance. Sources (iii)
+% and (iv) (the EKF, with eta = 0.5 and eta = 0) reuse the same transport
+% through Estimator.Predict once the EKF exists; they are not implemented
+% here.
 
-error('estimation:predictBoundaryByTransport:NotImplemented', ...
-    'The transport predictor is not implemented yet; use the oracle predictor.');
+prediction = estimation.transportBoundary(belief, pose, params);
+
+meanA = prediction.Mean(1:end - 1);
+meanB = prediction.Mean(2:end);
+jumpBound = max(params.JumpThreshold, params.JumpRelative .* min(meanA, meanB));
+isJump = abs(meanA - meanB) > jumpBound ...
+    | prediction.HasReturn(1:end - 1) ~= prediction.HasReturn(2:end);
+
+boundary = fov.boundaryFromRanges( ...
+    pose, prediction.Angles, prediction.Mean, belief.OpeningAngle, isJump);
 end
