@@ -34,8 +34,8 @@ offline, per-step comparison of source (ii) against the oracle on an
 existing run. Not yet implemented: covariance propagation (F, Q) and the
 EKF (sources iii-iv).
 
-Verified: `tests/TestTransport.m` (21/21), `tests/TestControl.m` (22/22),
-and the full suite, `runtests('tests')` (97/97), on 2026-11-14 (headless).
+Verified: `tests/TestTransport.m` (22/22), `tests/TestControl.m` (22/22),
+and the full suite, `runtests('tests')` (98/98), on 2026-11-14 (headless).
 Zero motion reproduces the belief's mean and `HasReturn` exactly (openRoom,
 boxInFrontOfWall, and a synthetic isolated single-ray surface, decision
 D4). A hand-built corner (an isolated post flanked by open space, slid
@@ -56,23 +56,35 @@ behind the box face, and |dh/dpsi| ≈ 6e-17 on the range arc with no
 obstacles. Source (ii) runs `boxInFrontOfWall` closed-loop, headless, and
 deterministically (two runs agree exactly).
 
-`scripts/compareGradientSources.m` measured, noiseless (`control.
-compareGradients` against the oracle predictor built from each run's own
-config, plan §8.2):
+Newly explored beams are filled from the nearest transported old point,
+not the nearest resampled beam: open stays open, a surface with a
+same-surface old neighbour is extended, and an isolated return (a surface
+seen by one ray) is inherited. Before this, a box seen only by the
+outermost ray was dropped whenever a gradient sample moved that point
+between new beams, and source (ii) then pointed away from the oracle.
 
-| Run | TrueVisible fraction | Status counts (nominal/corrected/slack) | Median / 90th pct angle to oracle (deg) |
-|---|---|---|---|
-| Oracle-driven | 1.000 | 77 / 144 / 19 | 25.01 / 152.01 |
-| Source (ii)-driven | 1.000 | 70 / 152 / 18 | 22.21 / 151.73 |
+Gradient comparison on `boxInFrontOfWall` (`control.compareGradients`
+against the oracle predictor built from each run's own config, plan §8.2;
+status counts are the statuses each run applied):
 
-and with `Sensor.RangeNoiseStd = 0.01`, `Seed = 1` (source (ii)-driven):
-TrueVisible fraction 1.000, status counts 73 / 150 / 17, median / 90th pct
-angle 19.50 / 151.59 deg. `TrueVisible` is 1.000 throughout all three runs,
-so the large 90th-percentile angle is not visibility loss; most of the
-high-angle (> 90 deg) steps are themselves `cbf-corrected` (most of the
-run is), so a large gradient-direction disagreement is not confined to
-steps where the constraint is slack or inactive. Characterizing exactly
-when source (ii) and the oracle disagree in direction is future work. Not
+| Run | TrueVisible fraction | Applied status counts (nominal/corrected/slack) | Median / 90th pct angle to oracle (deg) | Steps > 90 deg |
+|---|---|---|---|---|
+| Oracle-driven | 1.000 | 67 / 173 / 0 | 24.0 / 128.4 | 39 |
+| Source (ii)-driven, noiseless | 1.000 | 65 / 158 / 17 | 19.6 / 100.6 | 25 |
+| Source (ii)-driven, `RangeNoiseStd = 0.01`, `Seed = 1` | 1.000 | 65 / 160 / 15 | 18.1 / 117.0 | 26 |
+
+Before the fill change the source (ii) run had 40 steps above 90 deg, 39 of
+them from the dropped edge surface. The remaining large angles concentrate
+where the leader sits at the box corner near the sector edge. There the
+gradient samples (1-2 beams) probe within the half-beam corner uncertainty
+of the mid-beam estimate (methodology §1.2, the q_e term). Whether such a
+beam hits the near surface is undetermined by the scan, and the methodology
+resolves it through variance, not the mean. An attempted rule that let the
+corner's near side override beams claimed by the adjacent open pair fixed
+the traced step but created false edges elsewhere (source (ii) TrueVisible
+fell to 0.685) and was reverted. The candidate remedy is the §1.4
+extension: weighting the gradient fit by each sample's predicted variance,
+once covariance (P6) exists. Not
 verified: desktop graphics
 (`viz.plotTransportCheck`, `viz.plotGradientComparison`, and
 `scripts/checkTransport.m`'s and `scripts/compareGradientSources.m`'s plots
