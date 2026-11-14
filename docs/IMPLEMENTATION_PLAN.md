@@ -17,6 +17,28 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-14 status note: input-rate penalty and side-by-side replay
+
+The CBF-QP cost now includes `(u − u_prev)ᵀR(u − u_prev)`, with
+`InputRatePenalty` R = 2W = diag(2, 2, 0.5) by default and the previous
+applied input kept in the policy state (fallback steps included). It damps
+the closed-loop back-and-forth at the visibility margin, where the nearest
+polygon edge switches between steps and the gradient flips. Measured on
+`boxInFrontOfWall` (R = 0 → R = 2W):
+
+| Source | TrueVisible | Min h | Slack steps | Mean / 90th pct per-step input change | Gradient flips > 90 deg |
+|---|---|---|---|---|---|
+| Oracle | 1.000 → 1.000 | −0.033 → −0.032 | 0 → 0 | 0.126 / 0.406 → 0.057 / 0.131 | 10 → 6 |
+| Source (ii) | 1.000 → 1.000 | −0.052 → −0.034 | 17 → 5 | 0.176 / 0.716 → 0.074 / 0.177 | 29 → 18 |
+
+R = 4W and 16W smooth further at the cost of responsiveness; 2W was chosen.
+`clutteredField` barely exercises the controller and is unaffected. The
+checkpoint-2 comparison table below was measured with R = 0.
+`viz.animateComparison` replays several runs side by side on the same time
+grid (true visible polygon, trajectories, applied gradient direction);
+`scripts/compareGradientSources.m` ends with it. Verified: full suite
+101/101 (headless). Not verified: desktop viewing of the replay.
+
 ## 0. 2026-11-14 status note: edges, disocclusion, and the transport predictor (checkpoint 2)
 
 Implemented, completing checkpoint 2 of `docs/matlab-implementation-plan.md`

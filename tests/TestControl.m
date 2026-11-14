@@ -46,7 +46,9 @@ classdef TestControl < matlab.unittest.TestCase
             % sub-beam finite-difference gradient), so the QP corrects the
             % nominal without needing slack.
             verifyEqual(testCase, diagnostics.Status, "cbf-corrected");
-            verifyLessThanOrEqual(testCase, diagnostics.Slack, 1e-4);
+            % The slack is soft (O(1/lambda)) and grows with the input cost;
+            % the default rate penalty triples it here (measured 2.1e-4).
+            verifyLessThanOrEqual(testCase, diagnostics.Slack, 1e-3);
         end
 
         function policyUsesSlackWhenBoundsCannotCounterTargetDrift(testCase)
@@ -164,6 +166,34 @@ classdef TestControl < matlab.unittest.TestCase
 
             verifyEqual(testCase, input, [0.5, -0.5, 0]);
             verifyEqual(testCase, qp.Status, "zero-control-authority");
+        end
+
+        function ratePenaltyPullsTowardPreviousInput(testCase)
+            % With W = I, R = 2I and an inactive constraint, the QP minimizes
+            % |u - u0|^2 + 2|u - uPrev|^2, so u = (u0 + 2 uPrev) / 3.
+            [config, options] = solverSetup();
+            config.InputRatePenalty = 2 * eye(3);
+            previous = [0.3; 0; 0];
+            [input, qp] = control.solveCbfQp( ...
+                [1, 0, 0], -10, [0, 0, 0], config, options, previous);
+
+            verifyEqual(testCase, input, [0.2, 0, 0], 'AbsTol', 1e-9);
+            verifyEqual(testCase, qp.Status, "nominal-feasible");
+        end
+
+        function policyRemembersAppliedInputAndRejectsIndefiniteRate(testCase)
+            spec = fov.FovSpec(2, deg2rad(100));
+            obstacles = struct('Name', {}, 'Vertices', {});
+            observation = oracleObservation(spec, 81, [1, 0.2, 0]);
+            policy = control.makeSignedDistanceCbfPolicy(struct( ...
+                'BoundaryPredictor', oraclePredictor(spec, obstacles, 81)));
+            [input, state] = policy(observation, [0.2, 0, 0], struct());
+
+            verifyEqual(testCase, state.PreviousInput, input(:));
+            verifyError(testCase, @() control.makeSignedDistanceCbfPolicy(struct( ...
+                'BoundaryPredictor', oraclePredictor(spec, obstacles, 81), ...
+                'InputRatePenalty', -eye(3))), ...
+                'control:makeSignedDistanceCbfPolicy:InvalidConfig');
         end
 
         function gradientRecoversLinearBarrierExactly(testCase)

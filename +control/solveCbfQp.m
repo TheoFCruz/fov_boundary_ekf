@@ -1,4 +1,5 @@
-function [input, qp] = solveCbfQp(coefficient, rightHandSide, nominal, config, options)
+function [input, qp] = solveCbfQp( ...
+        coefficient, rightHandSide, nominal, config, options, previousInput)
 %SOLVECBFQP Minimally modify a nominal input subject to one CBF constraint.
 %
 %   [input, qp] = control.solveCbfQp(coefficient, rightHandSide, nominal, config, options)
@@ -9,7 +10,11 @@ function [input, qp] = solveCbfQp(coefficient, rightHandSide, nominal, config, o
 %     subject to          coefficient * u + delta >= rightHandSide
 %                         InputLower <= u <= InputUpper,   delta >= 0
 %
-% where u0 is the nominal input clipped to the bounds and delta is the slack
+% plus, when config.InputRatePenalty (R) is nonzero, the rate term
+% (u - u_prev)' * R * (u - u_prev) toward previousInput (3-by-1), which damps
+% input changes between control steps; R = 0 (the default) leaves the
+% problem unchanged. previousInput defaults to u0. Here u0 is the nominal
+% input clipped to the bounds and delta is the slack
 % that keeps the problem feasible. For the CBF condition hdot + gamma*h >= 0
 % the policy passes coefficient = dh/du (1-by-3) and
 % rightHandSide = -gamma*h - dh/dt. config supplies InputLower and InputUpper
@@ -28,6 +33,14 @@ function [input, qp] = solveCbfQp(coefficient, rightHandSide, nominal, config, o
 
 nominal = reshape(double(nominal), 3, 1);
 clippedNominal = min(max(nominal, config.InputLower), config.InputUpper);
+if nargin < 6 || isempty(previousInput)
+    previousInput = clippedNominal;
+end
+previousInput = reshape(double(previousInput), 3, 1);
+ratePenalty = zeros(3);
+if isfield(config, 'InputRatePenalty')
+    ratePenalty = config.InputRatePenalty;
+end
 input = clippedNominal.';
 qp = struct( ...
     'Status', "not-computed", ...
@@ -54,8 +67,8 @@ end
 % constraint requires there, which is always feasible.
 initialSlack = max(0, rightHandSide - coefficient * clippedNominal);
 initialPoint = [clippedNominal; initialSlack];
-H = blkdiag(config.InputWeights, config.SlackPenalty);
-f = [-config.InputWeights * clippedNominal; 0];
+H = blkdiag(config.InputWeights + ratePenalty, config.SlackPenalty);
+f = [-config.InputWeights * clippedNominal - ratePenalty * previousInput; 0];
 A = [-coefficient, -1];
 b = -rightHandSide;
 lowerBound = [config.InputLower; 0];

@@ -41,6 +41,7 @@ policy = @applyPolicy;
         if ~isfinite(barrier)
             [input, diagnostics] = fallbackDiagnostics( ...
                 diagnostics, clippedReference, "invalid-geometry-fallback");
+            state.PreviousInput = input(:);
             return;
         end
         diagnostics.SignedDistance = signedDistance;
@@ -68,6 +69,7 @@ policy = @applyPolicy;
         if quality ~= "usable"
             [input, diagnostics] = fallbackDiagnostics( ...
                 diagnostics, clippedReference, "unusable-gradient-fallback");
+            state.PreviousInput = input(:);
             return;
         end
 
@@ -86,8 +88,14 @@ policy = @applyPolicy;
 
         % Solve: coefficient * u + slack >= -gamma * h - targetDrift.
         rightHandSide = -config.CbfRate * barrier - targetDrift;
+        % The rate penalty pulls toward the input applied at the previous step.
+        previousInput = [];
+        if isfield(state, 'PreviousInput')
+            previousInput = state.PreviousInput;
+        end
         [input, qp] = control.solveCbfQp( ...
-            coefficient, rightHandSide, reference, config, options);
+            coefficient, rightHandSide, reference, config, options, previousInput);
+        state.PreviousInput = input(:);
         diagnostics.NominalInput = qp.NominalInput;
         diagnostics.AppliedInput = input;
         diagnostics.Slack = qp.Slack;
@@ -110,6 +118,7 @@ defaults = struct( ...
     'InputUpper', [0.5; 0.5; 1], ...
     'InputWeights', diag([1, 1, 0.25]), ...
     'SlackPenalty', 1e4, ...
+    'InputRatePenalty', diag([2, 2, 0.5]), ...  % 2 * InputWeights: damps input changes
     'GradientBeamMultiples', [1, 2], ...
     'BoundaryPredictor', []);
 if numel(varargin) ~= 1 || ~isstruct(varargin{1}) || ~isscalar(varargin{1})
@@ -172,6 +181,14 @@ if norm(config.InputWeights - config.InputWeights.', 'fro') > 32 * eps(weightSca
         factorizationFlag ~= 0
     error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
         'InputWeights must be symmetric positive definite.');
+end
+config.InputRatePenalty = double(config.InputRatePenalty);
+if ~isequal(size(config.InputRatePenalty), [3, 3]) ...
+        || any(~isfinite(config.InputRatePenalty(:))) ...
+        || norm(config.InputRatePenalty - config.InputRatePenalty.', 'fro') > 1e-12 ...
+        || min(eig(config.InputRatePenalty)) < -1e-12
+    error('control:makeSignedDistanceCbfPolicy:InvalidConfig', ...
+        'InputRatePenalty must be a symmetric positive semidefinite 3-by-3 matrix.');
 end
 config.DistanceMargin = double(config.DistanceMargin);
 config.CbfRate = double(config.CbfRate);

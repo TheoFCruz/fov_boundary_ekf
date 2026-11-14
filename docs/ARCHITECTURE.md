@@ -140,8 +140,11 @@ are pure numerics with no FoV geometry, so they are tested on their own.
 4. **CBF terms:** `coefficient = ∂h/∂q · G(ψ)` maps body inputs to ḣ.
    `TargetDrift = ∂h/∂y · ẏ` is ∂h/∂t from the leader's known velocity.
 5. **QP (`control.solveCbfQp`, direct `quadprog`):** minimize
-   `(u − u_nom)ᵀW(u − u_nom) + λδ²` subject to `coefficient·u + δ ≥ −γh − drift`,
-   input bounds and `δ ≥ 0`. It also handles the zero-authority and QP-failure
+   `(u − u_nom)ᵀW(u − u_nom) + (u − u_prev)ᵀR(u − u_prev) + λδ²` subject to
+   `coefficient·u + δ ≥ −γh − drift`, input bounds and `δ ≥ 0`. The rate term
+   (`InputRatePenalty` R, default 2W = diag(2, 2, 0.5)) damps input changes
+   between steps; `u_prev` is the previous applied input, kept in the policy
+   state. It also handles the zero-authority and QP-failure
    fallbacks.
 6. **Status and fallback:** `nominal-feasible`, `cbf-corrected` or
    `relaxed-with-slack`, based on whether the constraint can be met within the
@@ -362,7 +365,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `referencePolicy.m` | No-control policy: returns the nominal input. |
 | `makeSignedDistanceCbfPolicy.m` | **The CBF-QP policy** (§4): predict, barrier, gradient, solve. |
 | `barrierGradient.m` | Least-squares `dh/dpose` and `dh/dtarget` over beam-spacing samples (eq. 12). |
-| `solveCbfQp.m` | The slack CBF-QP with `quadprog`, its status and its fallbacks. |
+| `solveCbfQp.m` | The slack CBF-QP with `quadprog` (nominal tracking plus the input-rate penalty), its status and its fallbacks. |
 | `compareGradients.m` | Offline, per-step comparison of two boundary predictors' gradients on an existing `result` log (angle between position gradients, heading-gradient difference, each one's barrier value and status). |
 
 ### `+viz`: offline, reads `result` only
@@ -374,6 +377,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `plotControlDiagnostics.m` | h, inputs, slack and step sizes over time; prints status counts. |
 | `saveSimulationFrames.m` | Exports selected replay frames as PNGs under `frames/` (ignored by Git). |
 | `plotTransportCheck.m` | Plots `transportBoundary`'s predicted mean against a truth scan, beams marked by label, with s_i/r_far,i markers on disoccluded beams; replay-only diagnostic. |
+| `animateComparison.m` | Synchronized side-by-side replay of several runs on the same time grid (e.g. oracle vs source ii): true visible polygon, trajectories, agents, and the direction of each run's applied gradient (dh/dx, dh/dy); titles give t, h, status, and true visibility. |
 | `plotGradientComparison.m` | Plots `control.compareGradients`' angle-to-oracle and each run's true visibility over time, one line per run. |
 
 ### `tests`

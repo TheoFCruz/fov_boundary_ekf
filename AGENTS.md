@@ -35,8 +35,10 @@ No one document replaces the others. If a change affects a contract,
 architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
-verification honestly. The full suite (`runtests('tests')`) passed 98/98 on
-2026-11-14, after checkpoint 2 of the boundary-transport prediction model
+verification honestly. The full suite (`runtests('tests')`) passed 101/101 on
+2026-11-14, after the input-rate penalty became the CBF-QP default
+(`InputRatePenalty` = 2W) and `viz.animateComparison` was added; earlier
+98/98 the same day, after checkpoint 2 of the boundary-transport prediction model
 (edges, disocclusion, and the transport predictor, gradient source (ii):
 `estimation.transport.edgeAndShadowCandidates`,
 `estimation.transport.applyFreeSpaceHypothesis`,
