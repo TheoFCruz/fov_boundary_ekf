@@ -17,6 +17,55 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-14 status note: gradient sources (iii)/(iv) closed loop (E3)
+
+Added `scenarios.withGradientSource(scenario, source, params)`, which sets
+both `scenario.Estimator` and a fresh `control.makeSignedDistanceCbfPolicy`
+(only `BoundaryPredictor` set; every other policy setting, including the
+rate penalty, stays default) consistently for one of the four sources:
+`"oracle"` (i), `"latest"` (ii), `"filter"` (iii, the boundary EKF, η = 0.5),
+`"filter-conservative"` (iv, the same with `FreeSpaceFraction = 0` forced in
+**both** the filter and the predictor closure). `scripts/
+runBoxInFrontOfWallFilter.m` and `scripts/runBoxInFrontOfWallConservative.m`
+run, summarize and replay (iii) and (iv) on `boxInFrontOfWall`.
+`tests/TestControl.m` checks closed-loop determinism for both and a direct
+behavioural check that `"filter-conservative"` uses η = 0 in the estimator's
+own `Predict` and in the predictor's `transportBoundary` call (a known
+disocclusion gives the conservative seen-free-limit mean, strictly below the
+η = 0.5 case, in both places).
+
+Measured (not tuned) on `boxInFrontOfWall`, `RangeNoiseStd = 0.01`,
+`Sensor.Seed = 1`, oracle-boundary CBF-QP closed loop, 480 steps:
+
+| Source | Run time (s) | TrueVisible | Status counts | Slack steps | min h |
+|---|---|---|---|---|---|
+| (i) oracle | 11.1 | 1.000 | cbf-corrected=343, nominal-feasible=137 | 215/480 | -0.0304 |
+| (ii) latest | 13.1 | 1.000 | cbf-corrected=206, nominal-feasible=271, relaxed-with-slack=3 | 128/480 | -0.0260 |
+| (iii) filter | 14.6 | 1.000 | cbf-corrected=213, nominal-feasible=266, relaxed-with-slack=1 | 147/480 | -0.0257 |
+| (iv) filter-conservative | 15.1 | 1.000 | cbf-corrected=167, nominal-feasible=280, relaxed-with-slack=33 | 124/480 | -0.0411 |
+
+"Slack steps" counts steps with `Slack > 1e-6`; "min h" is the minimum
+`BarrierValue` (the policy's own estimated barrier, not
+`Metrics.SampledPolygonSignedDistance`). `control.compareGradients` against
+the oracle built from each run's own config (offline, decision D7):
+
+| Source | Median angle to oracle (deg) | 90th pct (deg) |
+|---|---|---|
+| (iii) filter | 19.8 | 147.1 |
+| (iv) filter-conservative | 35.3 | 107.5 |
+
+All four sources kept the leader fully visible (`TrueVisible` = 1.000) on
+this run; (iv)'s larger median angle and higher slack/relaxed-step count are
+consistent with the conservative hypothesis giving a less informative
+(smaller, closer-to-seen-free) predicted boundary behind occlusions than (ii)
+or (iii), so its gradient agrees with the oracle less often and it leans on
+slack more; the very wide 90th-percentile angles for both (consistent with
+source (ii)'s own prior observations) reflect that the position gradient is
+near zero (and its direction correspondingly noisy) on most steps away from
+an active occlusion, not a consistent large disagreement. Full suite
+117/117 before this change; see the AGENTS.md verification sentence for the
+count after.
+
 ## 0. 2026-11-14 status note: boundary EKF and consistency (E1, E2)
 
 Implemented `estimation.makeBoundaryEkf(params)` (methodology §1.3): `Predict`

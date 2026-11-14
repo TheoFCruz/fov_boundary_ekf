@@ -346,6 +346,72 @@ classdef TestControl < matlab.unittest.TestCase
             verifyEqual(testCase, firstResult.LeaderPose, secondResult.LeaderPose);
         end
 
+        function sourceThreeAndFourRunEndToEndDeterministically(testCase)
+            % Closed-loop smoke test for gradient sources (iii) and (iv)
+            % (scenarios.withGradientSource, the boundary EKF): a noisy,
+            % seeded boxInFrontOfWall run must be headless and reproduce
+            % exactly from the same scenario, for both sources.
+            for source = ["filter", "filter-conservative"]
+                buildScenario = @() scenarios.withGradientSource( ...
+                    noisySeededBoxScenario(), source);
+
+                firstResult = simulation.runScenario(buildScenario());
+                secondResult = simulation.runScenario(buildScenario());
+
+                verifyEqual(testCase, firstResult.ObserverPose, secondResult.ObserverPose);
+                verifyEqual(testCase, firstResult.LeaderPose, secondResult.LeaderPose);
+                verifyEqual(testCase, firstResult.Beliefs{end}.Mean, ...
+                    secondResult.Beliefs{end}.Mean);
+                for k = 1:numel(firstResult.Beliefs)
+                    verifyEqual(testCase, firstResult.Beliefs{k}.Method, "boundary-ekf");
+                end
+            end
+        end
+
+        function conservativeSourceUsesZeroFreeSpaceFractionInBothPlaces(testCase)
+            % Decision 4/E3: "filter-conservative" (source iv) forces
+            % FreeSpaceFraction = 0 in both the filter's own transport
+            % (the estimator's Predict) and the boundary predictor the
+            % policy calls (estimation.predictBoundaryByTransport), unlike
+            % the eta = 0.5 baseline "filter" (source iii). Checked
+            % directly on a belief with a known disocclusion: eta = 0 must
+            % give exactly the conservative seen-free limit, strictly
+            % smaller than the eta = 0.5 mean.
+            belief = isolatedPostDisocclusionBelief();
+            pose = [0, 0.2, 0];
+            baseParams = estimation.defaultTransportParams();
+            scenario = struct('Sensor', struct('RangeNoiseStd', 0.02));
+
+            conservativeScenario = scenarios.withGradientSource( ...
+                scenario, "filter-conservative", baseParams);
+            defaultScenario = scenarios.withGradientSource(scenario, "filter", baseParams);
+            motion = struct('PreviousObserverPose', belief.ObserverPose, ...
+                'CurrentObserverPose', pose, 'AppliedInput', [0, 0, 0]);
+
+            % Estimator half.
+            conservativeState = conservativeScenario.Estimator.Initialize(struct());
+            conservativeState.Belief = belief;
+            conservativeState = conservativeScenario.Estimator.Predict(conservativeState, motion, 0.025);
+            defaultState = defaultScenario.Estimator.Initialize(struct());
+            defaultState.Belief = belief;
+            defaultState = defaultScenario.Estimator.Predict(defaultState, motion, 0.025);
+
+            % Predictor half: the same transport call withGradientSource
+            % wires into the policy for each source.
+            conservativeParams = baseParams;
+            conservativeParams.FreeSpaceFraction = 0;
+            expectedConservative = estimation.transportBoundary(belief, pose, conservativeParams);
+            expectedDefault = estimation.transportBoundary(belief, pose, baseParams);
+
+            verifyEqual(testCase, conservativeState.Pending.Mean, ...
+                expectedConservative.Mean, 'AbsTol', 1e-9);
+            verifyEqual(testCase, defaultState.Pending.Mean, expectedDefault.Mean, 'AbsTol', 1e-9);
+            isDisoccluded = expectedDefault.Label == "disoccluded";
+            verifyTrue(testCase, any(isDisoccluded));
+            verifyLessThan(testCase, conservativeState.Pending.Mean(isDisoccluded), ...
+                defaultState.Pending.Mean(isDisoccluded) - 1e-9);
+        end
+
         function oraclePredictorGradientMatchesContinuousGeometrySign(testCase)
             % Observer facing a wall with a corner, per the simulation/control
             % audit's hand-checked case: target just inside the corner shadow.
@@ -469,6 +535,34 @@ function scenario = setPolicyField(scenario, policy)
 %SETPOLICYFIELD Swap a scenario's observer policy (for a fresh closure each run).
 
 scenario.Observer.Policy = policy;
+end
+
+function scenario = noisySeededBoxScenario()
+%NOISYSEEDEDBOXSCENARIO boxInFrontOfWall with fixed noise and seed (sources iii/iv).
+
+scenario = scenarios.boxInFrontOfWall();
+scenario.Sensor.RangeNoiseStd = 0.01;
+scenario.Sensor.Seed = 5;
+end
+
+function belief = isolatedPostDisocclusionBelief()
+%ISOLATEDPOSTDISOCCLUSIONBELIEF A single-ray return flanked by open space.
+%
+% Same construction as TestTransport's isolatedPostBelief: 11 beams, 0.1 rad
+% apart, a thin post returning at 1 m at boresight, open (no-return) space
+% at the 5 m cap elsewhere. Sliding the pose sideways by 0.2 m disoccludes
+% beams 5 and 6 behind the post (methodology eqs. 8-11).
+
+belief = struct();
+belief.Angles = linspace(-0.5, 0.5, 11).';
+belief.Mean = 5 * ones(11, 1);
+belief.Mean(6) = 1;
+belief.HasReturn = false(11, 1);
+belief.HasReturn(6) = true;
+belief.Covariance = 0.02 ^ 2 * eye(11);
+belief.ObserverPose = [0, 0, 0];
+belief.MaxRange = 5;
+belief.OpeningAngle = 1.2;
 end
 
 function policy = emptyFieldPolicy(overrides)
