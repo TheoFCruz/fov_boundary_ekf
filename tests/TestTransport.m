@@ -126,6 +126,39 @@ classdef TestTransport < matlab.unittest.TestCase
             verifyFalse(testCase, any(prediction.HasReturn(isNew)));
         end
 
+        function isolatedEdgeSurfaceIsInheritedByNewBeams(testCase)
+            % Regression: only the outermost beam (-50 deg) hits a box at
+            % 0.94 m; the rest of the 2 m sector is open. Moving back 3 cm
+            % pulls that point inward between new beams, leaving the two
+            % outermost beams uncovered. They must inherit the box point's
+            % transported range (an isolated surface has no line to extend)
+            % instead of being filled as open from the nearest resampled beam.
+            angles = linspace(-deg2rad(50), deg2rad(50), 81).';
+            belief = struct();
+            belief.Angles = angles;
+            belief.Mean = 2 * ones(81, 1);
+            belief.Mean(1) = 0.94;
+            belief.Covariance = sparse(81, 81);
+            belief.HasReturn = false(81, 1);
+            belief.HasReturn(1) = true;
+            belief.ObserverPose = [0, 0, 0];
+            belief.MaxRange = 2;
+            belief.OpeningAngle = deg2rad(100);
+            boxPoint = 0.94 * [cos(angles(1)), sin(angles(1))];
+            expectedRange = norm(boxPoint - [-0.03, 0]);
+
+            prediction = estimation.transportBoundary( ...
+                belief, [-0.03, 0, 0], estimation.defaultTransportParams());
+            % Moving back uncovers both sector edges: beams 1-2 next to the
+            % box point and beam 81 next to open space.
+            verifyEqual(testCase, find(prediction.Label == "new").', [1, 2, 81]);
+            verifyEqual(testCase, prediction.Mean(1:2), ...
+                expectedRange * [1; 1], 'AbsTol', 1e-12);
+            verifyTrue(testCase, all(prediction.HasReturn(1:2)));
+            verifyEqual(testCase, prediction.Mean(81), 2);
+            verifyFalse(testCase, prediction.HasReturn(81));
+        end
+
         function transportMatchesHandComputedEquation1(testCase)
             % Hand-checked eq. 1 (plus the eq. 2 blend) on a synthetic
             % 3-beam belief with a pure rotation of 0.03 rad: each

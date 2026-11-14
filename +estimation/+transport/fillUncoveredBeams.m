@@ -1,68 +1,60 @@
 function [predictedMean, hasReturn] = fillUncoveredBeams( ...
-        angles, predictedMean, hasReturn, label, maxRange, params)
-%FILLUNCOVEREDBEAMS Fill "new" beams from the nearest covered beam.
+        angles, endpoints, pairs, hasReturnOld, predictedMean, hasReturn, label, maxRange)
+%FILLUNCOVEREDBEAMS Fill "new" beams from the nearest transported old point.
 %
 %   [predictedMean, hasReturn] = estimation.transport.fillUncoveredBeams( ...
-%       angles, predictedMean, hasReturn, label, maxRange, params)
+%       angles, endpoints, pairs, hasReturnOld, predictedMean, hasReturn, ...
+%       label, maxRange)
 %
 % Newly explored beams (methodology sec. 1.2, "Regiões recém-exploradas";
-% plan sec. 4.7) have no old point: either no pair bracketed them, or the
-% edge/disocclusion stage found no usable jump-pair candidate for them.
-% Every other label ("blend", "no-return", "overlap", "edge", "disoccluded")
-% is covered. The nearest covered beam decides: if it is open ("no-return"),
-% the uncovered beam stays open (maxRange, no return), so no distant surface
-% is extended across open space; otherwise the beam continues that surface:
-% it is intersected with the line through the covered beam and its same-side
-% neighbour, when that neighbour is itself a surface label ("blend",
-% "overlap" or "edge", excluding the weaker "disoccluded" hypothesis) and
-% passes the mean-only eq. 7 range test, or else it simply copies the covered
-% beam's range and HasReturn. Saturates at maxRange as no return.
+% plan sec. 4.7) have no old point around them: either no old pair brackets
+% them (they entered through a sector side) or the edge/disocclusion stage
+% found no usable candidate. Each is decided by the old point next to it,
+% the transported old endpoint nearest in bearing, i.e. what the old scan
+% saw at that edge:
+%
+%   - an open (no-return) old point: the beam stays open (maxRange, no
+%     return), so no surface is extended across open space;
+%   - a return with a same-surface old neighbour (eq. 7 pair): that surface
+%     continues, the beam is intersected with the line through the two
+%     transported points;
+%   - an isolated return (a surface seen by one ray): the beam inherits its
+%     transported range.
+%
+% A result at or beyond maxRange is no return. Using the old points rather
+% than the already resampled beams keeps an isolated surface at the sector
+% edge (e.g. one ray on a box) from being dropped when the motion moves it
+% between new beams.
 
-coveredIndices = find(label ~= "new");
+numOld = numel(endpoints.Rho);
 fillIndices = find(label == "new");
-numBeams = numel(angles);
 for n = 1:numel(fillIndices)
     i = fillIndices(n);
-    if isempty(coveredIndices)
-        predictedMean(i) = maxRange;
-        hasReturn(i) = false;
-        continue;
-    end
     theta = angles(i);
-    [~, nearestPosition] = min(abs(angles(coveredIndices) - theta));
-    k = coveredIndices(nearestPosition);
+    [~, k] = min(abs(endpoints.Phi - theta));
 
-    % Next to open space the beam stays open: never extend a distant surface.
-    if label(k) == "no-return"
+    if ~hasReturnOld(k)
         predictedMean(i) = maxRange;
         hasReturn(i) = false;
         continue;
     end
 
-    % The neighbour on the covered side of k (away from the uncovered beam)
-    % continues the same surface if it is itself a surface label and passes
-    % the eq. 7 range test (mean only here, so without the variance term).
-    if angles(k) < theta
-        neighborIndex = k - 1;
-    else
-        neighborIndex = k + 1;
+    % Same-surface old neighbour of k on the side away from the new beam.
+    neighbor = NaN;
+    if k > 1 && pairs.IsSameSurface(k - 1)
+        neighbor = k - 1;
     end
-    isSurfaceLabel = neighborIndex >= 1 && neighborIndex <= numBeams ...
-        && any(label(neighborIndex) == ["blend", "overlap", "edge"]);
-    hasNeighbor = isSurfaceLabel;
-    if hasNeighbor
-        rangeK = predictedMean(k);
-        rangeNeighbor = predictedMean(neighborIndex);
-        sameSurfaceBound = max( ...
-            params.JumpThreshold, params.JumpRelative * min(rangeK, rangeNeighbor));
-        hasNeighbor = abs(rangeK - rangeNeighbor) <= sameSurfaceBound;
+    if k < numOld && pairs.IsSameSurface(k) ...
+            && (isnan(neighbor) ...
+                || abs(endpoints.Phi(k + 1) - theta) > abs(endpoints.Phi(neighbor) - theta))
+        neighbor = k + 1;
     end
 
-    candidateRange = predictedMean(k);
-    if hasNeighbor
-        pointK = predictedMean(k) * [cos(angles(k)), sin(angles(k))];
-        pointNeighbor = predictedMean(neighborIndex) ...
-            * [cos(angles(neighborIndex)), sin(angles(neighborIndex))];
+    candidateRange = endpoints.Rho(k);
+    if ~isnan(neighbor)
+        pointK = endpoints.Rho(k) * [cos(endpoints.Phi(k)), sin(endpoints.Phi(k))];
+        pointNeighbor = endpoints.Rho(neighbor) ...
+            * [cos(endpoints.Phi(neighbor)), sin(endpoints.Phi(neighbor))];
         direction = pointNeighbor - pointK;
         rayDirection = [cos(theta), sin(theta)];
         denominator = cross2(rayDirection, direction);
@@ -80,7 +72,7 @@ for n = 1:numel(fillIndices)
         hasReturn(i) = false;
     else
         predictedMean(i) = candidateRange;
-        hasReturn(i) = hasReturn(k);
+        hasReturn(i) = true;
     end
 end
 end

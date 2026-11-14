@@ -19,7 +19,7 @@ function prediction = transportBoundary(belief, pose, params)
 %   resampleOntoBeams            blend/overlap within surfaces, open space (eq. 2)
 %   edgeAndShadowCandidates      edges and new occlusions/disocclusions (eqs. 8-10)
 %   applyFreeSpaceHypothesis     free-space blend behind a disocclusion (eq. 11)
-%   fillUncoveredBeams           newly explored beams (sec. 4.7)
+%   fillUncoveredBeams           newly explored beams from the nearest old point (sec. 4.7)
 %
 % prediction has Mean, HasReturn, IsSupported and Label per beam ("blend",
 % "overlap", "edge", "disoccluded", "no-return" or "new"), plus ShadowRange
@@ -59,7 +59,7 @@ pairs = estimation.transport.classifyPairs(endpoints, hasReturnOld, params);
     angles, pairs, endpoints, hasReturnOld, nearIndex, farIndex, ...
     shadowRange, label, predictedMean, maxRange, params);
 [predictedMean, hasReturn] = estimation.transport.fillUncoveredBeams( ...
-    angles, predictedMean, hasReturn, label, maxRange, params);
+    angles, endpoints, pairs, hasReturnOld, predictedMean, hasReturn, label, maxRange);
 
 % A surface transported beyond the cap is out of range: no return (sec. 4.9).
 isBeyondCap = predictedMean > maxRange;
