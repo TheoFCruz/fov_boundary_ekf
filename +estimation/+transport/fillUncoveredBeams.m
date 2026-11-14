@@ -1,24 +1,25 @@
 function [predictedMean, hasReturn] = fillUncoveredBeams( ...
         angles, predictedMean, hasReturn, label, maxRange, params)
-%FILLUNCOVEREDBEAMS Fill "new" and "jump-gap" beams from the nearest covered beam.
+%FILLUNCOVEREDBEAMS Fill "new" beams from the nearest covered beam.
 %
 %   [predictedMean, hasReturn] = estimation.transport.fillUncoveredBeams( ...
 %       angles, predictedMean, hasReturn, label, maxRange, params)
 %
-% Newly explored beams (methodology sec. 1.2, plan sec. 4.7) have no old
-% point. Covered beams are those resampled from an old pair: a surface
-% ("blend") or open space ("no-return"). The nearest covered beam decides:
-% if it is open, the uncovered beam stays open (maxRange, no return), so no
-% distant surface is extended across open space; if it is a surface, that
-% surface continues: the beam is intersected with the line through the
-% covered beam and its same-surface neighbour (or copies the covered range
-% when there is no such neighbour), saturating at maxRange as no return.
-% Jump-gap beams take the same fill until the edge and disocclusion rules
-% (eqs. 8-11) replace it.
+% Newly explored beams (methodology sec. 1.2, "Regiões recém-exploradas";
+% plan sec. 4.7) have no old point: either no pair bracketed them, or the
+% edge/disocclusion stage found no usable jump-pair candidate for them.
+% Every other label ("blend", "no-return", "overlap", "edge", "disoccluded")
+% is covered. The nearest covered beam decides: if it is open ("no-return"),
+% the uncovered beam stays open (maxRange, no return), so no distant surface
+% is extended across open space; otherwise the beam continues that surface:
+% it is intersected with the line through the covered beam and its same-side
+% neighbour, when that neighbour is itself a surface label ("blend",
+% "overlap" or "edge", excluding the weaker "disoccluded" hypothesis) and
+% passes the mean-only eq. 7 range test, or else it simply copies the covered
+% beam's range and HasReturn. Saturates at maxRange as no return.
 
-isBlend = label == "blend";
-coveredIndices = find(isBlend | label == "no-return");
-fillIndices = find(label == "jump-gap" | label == "new");
+coveredIndices = find(label ~= "new");
+fillIndices = find(label == "new");
 numBeams = numel(angles);
 for n = 1:numel(fillIndices)
     i = fillIndices(n);
@@ -32,22 +33,23 @@ for n = 1:numel(fillIndices)
     k = coveredIndices(nearestPosition);
 
     % Next to open space the beam stays open: never extend a distant surface.
-    if ~isBlend(k)
+    if label(k) == "no-return"
         predictedMean(i) = maxRange;
         hasReturn(i) = false;
         continue;
     end
 
     % The neighbour on the covered side of k (away from the uncovered beam)
-    % continues the same surface if it is also a blended return and passes
+    % continues the same surface if it is itself a surface label and passes
     % the eq. 7 range test (mean only here, so without the variance term).
     if angles(k) < theta
         neighborIndex = k - 1;
     else
         neighborIndex = k + 1;
     end
-    hasNeighbor = neighborIndex >= 1 && neighborIndex <= numBeams ...
-        && isBlend(neighborIndex);
+    isSurfaceLabel = neighborIndex >= 1 && neighborIndex <= numBeams ...
+        && any(label(neighborIndex) == ["blend", "overlap", "edge"]);
+    hasNeighbor = isSurfaceLabel;
     if hasNeighbor
         rangeK = predictedMean(k);
         rangeNeighbor = predictedMean(neighborIndex);

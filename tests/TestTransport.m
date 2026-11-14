@@ -217,11 +217,15 @@ classdef TestTransport < matlab.unittest.TestCase
             verifyFalse(testCase, any(prediction.HasReturn(deepWedge)));
         end
 
-        function jumpGapAppearsOnlyNearReturnBoundary(testCase)
-            % No pair inside one wall should fail the eq. 7 jump test: a
-            % "jump-gap" label should appear only where an old pair spans a
-            % return/no-return transition, not deep inside the front wall
-            % or deep inside a side wall.
+        function noGapLabelEverAndWedgeBordersResolveToEdgeOrDisoccluded(testCase)
+            % P3 replaces the P1/P2 "jump-gap" placeholder: every beam a
+            % jump pair alone brackets is now resolved into "edge" or
+            % "disoccluded" (eqs. 8-10), never left as "jump-gap" (or the
+            % internal "gap" label). The wedge borders in openRoom (a
+            % return/no-return transition, a jump pair by decision D2)
+            % should resolve to one of those two labels; the deep front-wall
+            % and deep side-wall regions, bracketed only by same-surface
+            % pairs, must have none.
             scenario = scenarios.openRoom();
             poseA = scenario.Observer.InitialPose;
             poseB = poseA + [0.04, 0, 0];
@@ -229,14 +233,147 @@ classdef TestTransport < matlab.unittest.TestCase
 
             prediction = estimation.transportBoundary( ...
                 belief, poseB, estimation.defaultTransportParams());
-            isJumpGap = prediction.Label == "jump-gap";
-            % Measured jump-gap angles: +-32.5 and +-41.25 deg, at the
-            % wedge borders. The deep front-wall and deep side-wall
-            % regions must have none.
+            verifyTrue(testCase, all(prediction.Label ~= "jump-gap"));
+            verifyTrue(testCase, all(prediction.Label ~= "gap"));
+
+            isWedgeBorder = prediction.Label == "edge" | prediction.Label == "disoccluded";
+            verifyGreaterThan(testCase, sum(isWedgeBorder), 0);
             deepFrontWall = abs(prediction.Angles) < deg2rad(25);
             deepSideWall = abs(prediction.Angles) > deg2rad(45);
-            verifyFalse(testCase, any(isJumpGap & deepFrontWall));
-            verifyFalse(testCase, any(isJumpGap & deepSideWall));
+            verifyFalse(testCase, any(isWedgeBorder & deepFrontWall));
+            verifyFalse(testCase, any(isWedgeBorder & deepSideWall));
+        end
+
+        function zeroMotionReproducesMeanAndHasReturnExactly(testCase)
+            % Decision D4: at zero motion every transported bearing lands
+            % exactly back on the fixed grid, so the predicted mean and
+            % HasReturn must reproduce the belief exactly, in both a
+            % no-jump scenario (openRoom) and one full of edges
+            % (boxInFrontOfWall). Labels stay within the categories a
+            % zero-displacement transport can produce; "disoccluded"/
+            % "overlap" need actual parallax and cannot appear here.
+            for scenario = [scenarios.openRoom(), scenarios.boxInFrontOfWall()]
+                pose = scenario.Observer.InitialPose;
+                scan = sensing.raycastScan(pose, scenario.Observer.Fov, ...
+                    scenario.Obstacles, scenario.Sensor, 0);
+                estimator = estimation.makePassThroughEstimator();
+                state = estimator.Initialize(struct());
+                [~, belief] = estimator.Correct(state, scan);
+
+                prediction = estimation.transportBoundary( ...
+                    belief, pose, estimation.defaultTransportParams());
+                verifyEqual(testCase, prediction.Mean, belief.Mean, 'AbsTol', 1e-9);
+                verifyEqual(testCase, prediction.HasReturn, belief.HasReturn);
+                verifyTrue(testCase, all(ismember(prediction.Label, ...
+                    ["blend", "no-return", "edge", "new"])));
+            end
+        end
+
+        function zeroMotionIsolatedSingleRaySurfaceIsExact(testCase)
+            % Decision D4: a thin post hit by exactly one beam, flanked by
+            % no-return on both sides, is bracketed only by two jump pairs
+            % (mixed return / no-return) and would otherwise be lost as
+            % "new". At zero motion its own transported bearing equals its
+            % own angle exactly, so it must come back as "edge" at its own
+            % range, not interpolated or dropped.
+            belief = isolatedPostBelief();
+            prediction = estimation.transportBoundary( ...
+                belief, belief.ObserverPose, estimation.defaultTransportParams());
+
+            verifyEqual(testCase, prediction.Label(6), "edge");
+            verifyEqual(testCase, prediction.Mean(6), 1, 'AbsTol', 1e-12);
+            verifyTrue(testCase, prediction.HasReturn(6));
+            verifyEqual(testCase, prediction.Mean([5, 7]), [5; 5], 'AbsTol', 1e-12);
+            verifyFalse(testCase, any(prediction.HasReturn([5, 7])));
+        end
+
+        function handBuiltCornerMatchesHandComputedShadowAndCrossing(testCase)
+            % Hand-computed check of eqs. 8-10 on the isolated-post belief
+            % (a near "surface" of one beam between two open regions,
+            % decision D2's mixed-pair case) translated sideways by 0.2 m.
+            % Independently re-deriving the pair (6,7) corner (theta* =
+            % 0.05, c = [0.99875, -0.15002], d = [0.99875, 0.04998], from
+            % eq. 8 with mu_n = 1, Delta p = [0; 0.2], Delta psi = 0) and
+            % crossing each beam (eq. 10) gives s = 1.336674 at theta =
+            % -0.1 rad and s = 3.996666 at theta = 0 rad, both with t > 0
+            % (disoccluded); verified against the function's ShadowRange.
+            belief = isolatedPostBelief();
+            pose = [0, 0.2, 0];
+            prediction = estimation.transportBoundary( ...
+                belief, pose, estimation.defaultTransportParams());
+
+            verifyEqual(testCase, prediction.Label(5), "disoccluded");
+            verifyEqual(testCase, prediction.ShadowRange(5), 1.336674, 'AbsTol', 1e-5);
+            verifyEqual(testCase, prediction.Mean(5), prediction.ShadowRange(5));
+            verifyEqual(testCase, prediction.Label(6), "disoccluded");
+            verifyEqual(testCase, prediction.ShadowRange(6), 3.996666, 'AbsTol', 1e-5);
+            verifyEqual(testCase, prediction.Mean(6), prediction.ShadowRange(6));
+        end
+
+        function boxInFrontOfWallGapNeverBridgedExceptDisoccluded(testCase)
+            % Decision D1: a far-surface pair cannot bracket a beam inside
+            % a jump gap, so no beam's predicted range should fall strictly
+            % between the box's own range (~0.80-0.82 m across its angular
+            % width) and the wall's (~1.8-2.0 m) unless it is explicitly
+            % "disoccluded" (the free-space hypothesis, eq. 11).
+            [belief, scenario] = boxInFrontOfWallBelief();
+            params = estimation.defaultTransportParams();
+            offsets = [0, 0.03, 0; 0, 0.06, 0; 0, -0.03, 0; 0, -0.06, 0; ...
+                0.03, 0, 0; 0.06, 0, 0];
+            for row = 1:size(offsets, 1)
+                pose = scenario.Observer.InitialPose + offsets(row, :);
+                prediction = estimation.transportBoundary(belief, pose, params);
+                inGap = prediction.Mean > 0.85 & prediction.Mean < 1.75;
+                verifyTrue(testCase, all(prediction.Label(inGap) == "disoccluded"));
+            end
+        end
+
+        function boxInFrontOfWallSidewaysSlideYieldsOverlapAtBoxRange(testCase)
+            % A 0.06 m sideways slide is enough for the box's near surface
+            % to bracket a beam together with another box pair whose
+            % interpolated range differs by more than the jump bound: that
+            % beam is "overlap", at the box's own (nearest) range.
+            [belief, scenario] = boxInFrontOfWallBelief();
+            pose = scenario.Observer.InitialPose + [0, 0.06, 0];
+            prediction = estimation.transportBoundary( ...
+                belief, pose, estimation.defaultTransportParams());
+
+            isOverlap = prediction.Label == "overlap";
+            verifyGreaterThan(testCase, sum(isOverlap), 0);
+            verifyTrue(testCase, all(prediction.Mean(isOverlap) > 0.79 ...
+                & prediction.Mean(isOverlap) < 0.85));
+            verifyTrue(testCase, all(prediction.HasReturn(isOverlap)));
+        end
+
+        function boxInFrontOfWallTinyMotionGivesEdgeEqualToNearRange(testCase)
+            % A sub-cm sideways motion is too small to open a disocclusion
+            % window (t stays negative): the box/wall jump pairs' beams all
+            % resolve to "edge", at the near pair's own transported range
+            % rho_n, never interpolated toward the wall.
+            [belief, scenario] = boxInFrontOfWallBelief();
+            params = estimation.defaultTransportParams();
+            pose = scenario.Observer.InitialPose + [0, 0.005, 0];
+            prediction = estimation.transportBoundary(belief, pose, params);
+
+            isEdge = prediction.Label == "edge";
+            boxEdge = isEdge & abs(prediction.Angles) < deg2rad(15);
+            verifyGreaterThan(testCase, sum(boxEdge), 0);
+            verifyTrue(testCase, all(prediction.Mean(boxEdge) > 0.79 ...
+                & prediction.Mean(boxEdge) < 0.82));
+
+            % Cross-check against the lower-level stage directly: the near
+            % pair's own transported range (eq. 10, t < 0 branch).
+            angles = belief.Angles;
+            [deltaP, deltaPsi] = estimation.transport.relativeMotion( ...
+                belief.ObserverPose, pose);
+            endpoints = estimation.transport.transportEndpoints( ...
+                angles, belief.Mean, full(diag(belief.Covariance)), deltaP, deltaPsi);
+            pairs = estimation.transport.classifyPairs(endpoints, belief.HasReturn, params);
+            boxEdgeIndex = find(boxEdge, 1);
+            jumpPairIndex = find(pairs.IsJumpPair ...
+                & pairs.Lower < angles(boxEdgeIndex) & angles(boxEdgeIndex) < pairs.Upper, 1);
+            nearRange = min(pairs.RhoA(jumpPairIndex), pairs.RhoB(jumpPairIndex));
+            verifyEqual(testCase, prediction.Mean(boxEdgeIndex), nearRange, 'AbsTol', 1e-9);
         end
 
         function nonzeroHeadingTranslatesInOldSensorFrame(testCase)
@@ -322,6 +459,38 @@ mask = false(size(hasReturn));
 transition = find(diff(hasReturn) ~= 0);
 mask(transition) = true;
 mask(transition + 1) = true;
+end
+
+function belief = isolatedPostBelief()
+%ISOLATEDPOSTBELIEF A single-ray return (a thin post) between open space.
+%
+% 11 beams, 0.1 rad apart; beam 6 (theta = 0) returns at range 1 m, every
+% other beam has no return at the 5 m cap. Pairs (5,6) and (6,7) are the
+% only jump pairs (mixed return / no-return, decision D2); every other
+% pair is an open (no-return) pair.
+
+belief = struct();
+belief.Angles = linspace(-0.5, 0.5, 11).';
+belief.Mean = 5 * ones(11, 1);
+belief.Mean(6) = 1;
+belief.HasReturn = false(11, 1);
+belief.HasReturn(6) = true;
+belief.Covariance = sparse(11, 11);
+belief.ObserverPose = [0, 0, 0];
+belief.MaxRange = 5;
+belief.OpeningAngle = 1.2;
+end
+
+function [belief, scenario] = boxInFrontOfWallBelief()
+%BOXINFRONTOFWALLBELIEF Noiseless belief at the initial pose of S2.
+
+scenario = scenarios.boxInFrontOfWall();
+pose = scenario.Observer.InitialPose;
+scan = sensing.raycastScan(pose, scenario.Observer.Fov, ...
+    scenario.Obstacles, scenario.Sensor, 0);
+estimator = estimation.makePassThroughEstimator();
+state = estimator.Initialize(struct());
+[~, belief] = estimator.Correct(state, scan);
 end
 
 function maxError = blendError(belief, poseA, offset, scenario, isNearWedge)

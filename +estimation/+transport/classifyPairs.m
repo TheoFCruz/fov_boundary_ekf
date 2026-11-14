@@ -12,6 +12,10 @@ function pairs = classifyPairs(endpoints, hasReturn, params)
 % Two no-return beams form an open (no-return) pair. A mixed return /
 % no-return pair is always a jump. Lower/Upper are the pair's transported
 % bearings in ascending order, so a pair flipped by parallax still brackets.
+% ReturnA/ReturnB carry each side's old HasReturn flag and IsJumpPair marks
+% every distinct-bearing pair that is neither same-surface nor open
+% (methodology sec. 1.2, "Arestas"; decision D2), for the edge/disocclusion
+% stage.
 
 phiA = endpoints.Phi(1:end-1);
 phiB = endpoints.Phi(2:end);
@@ -38,4 +42,7 @@ pairs.IsSameSurface = returnA & returnB & distinctBearings ...
     & abs(rhoA - rhoB) <= jumpBound;
 pairs.IsNoReturnPair = ~returnA & ~returnB & distinctBearings;
 pairs.IsAnyPair = distinctBearings;
+pairs.ReturnA = returnA;
+pairs.ReturnB = returnB;
+pairs.IsJumpPair = distinctBearings & ~pairs.IsSameSurface & ~pairs.IsNoReturnPair;
 end
