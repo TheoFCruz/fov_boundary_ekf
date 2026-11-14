@@ -37,16 +37,18 @@ disocclusion gives the conservative seen-free-limit mean, strictly below the
 Measured (not tuned) on `boxInFrontOfWall`, `RangeNoiseStd = 0.01`,
 `Sensor.Seed = 1`, oracle-boundary CBF-QP closed loop, 480 steps:
 
-| Source | Run time (s) | TrueVisible | Status counts | Slack steps | min h |
+| Source | Run time (s) | TrueVisible | Status counts | Infeasible steps (`relaxed-with-slack`) | min h |
 |---|---|---|---|---|---|
-| (i) oracle | 11.1 | 1.000 | cbf-corrected=343, nominal-feasible=137 | 215/480 | -0.0304 |
-| (ii) latest | 13.1 | 1.000 | cbf-corrected=206, nominal-feasible=271, relaxed-with-slack=3 | 128/480 | -0.0260 |
-| (iii) filter | 14.6 | 1.000 | cbf-corrected=213, nominal-feasible=266, relaxed-with-slack=1 | 147/480 | -0.0257 |
-| (iv) filter-conservative | 15.1 | 1.000 | cbf-corrected=167, nominal-feasible=280, relaxed-with-slack=33 | 124/480 | -0.0411 |
+| (i) oracle | 11.1 | 1.000 | cbf-corrected=343, nominal-feasible=137 | 0 | -0.0304 |
+| (ii) latest | 13.1 | 1.000 | cbf-corrected=206, nominal-feasible=271, relaxed-with-slack=3 | 3 | -0.0260 |
+| (iii) filter | 14.6 | 1.000 | cbf-corrected=213, nominal-feasible=266, relaxed-with-slack=1 | 1 | -0.0257 |
+| (iv) filter-conservative | 15.1 | 1.000 | cbf-corrected=167, nominal-feasible=280, relaxed-with-slack=33 | 33 | -0.0411 |
 
-"Slack steps" counts steps with `Slack > 1e-6`; "min h" is the minimum
-`BarrierValue` (the policy's own estimated barrier, not
-`Metrics.SampledPolygonSignedDistance`). `control.compareGradients` against
+"Infeasible steps" are steps where no bounded input meets the CBF
+constraint. The numeric slack is positive on many more steps, but that is
+the soft O(1/λ) slack of decision C3, not infeasibility. "min h" is the
+minimum `BarrierValue` (the policy's own estimated barrier).
+`control.compareGradients` against
 the oracle built from each run's own config (offline, decision D7):
 
 | Source | Median angle to oracle (deg) | 90th pct (deg) |
@@ -55,14 +57,13 @@ the oracle built from each run's own config (offline, decision D7):
 | (iv) filter-conservative | 35.3 | 107.5 |
 
 All four sources kept the leader fully visible (`TrueVisible` = 1.000) on
-this run; (iv)'s larger median angle and higher slack/relaxed-step count are
-consistent with the conservative hypothesis giving a less informative
-(smaller, closer-to-seen-free) predicted boundary behind occlusions than (ii)
-or (iii), so its gradient agrees with the oracle less often and it leans on
-slack more; the very wide 90th-percentile angles for both (consistent with
-source (ii)'s own prior observations) reflect that the position gradient is
-near zero (and its direction correspondingly noisy) on most steps away from
-an active occlusion, not a consistent large disagreement. Full suite
+this run. Source (iv) (η = 0) needs slack far more often (33 steps vs 0-3)
+and agrees with the oracle less in the median (35° vs 20°). That is
+consistent with the conservative hypothesis predicting no free space behind
+the box, so moving sideways seems to help less. The wide 90th percentiles
+were not re-examined here; for source (ii) they were traced to the leader at
+the box corner near the sector edge (methodology notes D5). Single seed;
+not a multi-seed comparison. Full suite
 117/117 before this change; see the AGENTS.md verification sentence for the
 count after.
 
