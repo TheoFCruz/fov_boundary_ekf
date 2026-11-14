@@ -98,6 +98,34 @@ classdef TestTransport < matlab.unittest.TestCase
             verifyLessThan(testCase, max(err), 1e-2);
         end
 
+        function newBeamsNextToOpenSpaceStayOpen(testCase)
+            % Regression: a wall at x = 1 covers only |theta| <= 20 deg and
+            % the rest of the 2 m sector is open. Rotating left uncovers two
+            % beams whose covered neighbour is open, so they must stay open
+            % (MaxRange, no return) instead of extending the distant wall
+            % line across open space (which predicted a fake wall at 1.6 m).
+            angles = linspace(-deg2rad(50), deg2rad(50), 81).';
+            onWall = abs(angles) <= deg2rad(20);
+            belief = struct();
+            belief.Angles = angles;
+            belief.Mean = 2 * ones(81, 1);
+            belief.Mean(onWall) = 1 ./ cos(angles(onWall));
+            belief.Covariance = sparse(81, 81);
+            belief.HasReturn = onWall;
+            belief.ObserverPose = [0, 0, 0];
+            belief.MaxRange = 2;
+            belief.OpeningAngle = deg2rad(100);
+            beamSpacing = angles(2) - angles(1);
+
+            prediction = estimation.transportBoundary( ...
+                belief, [0, 0, 2 * beamSpacing], estimation.defaultTransportParams());
+            isNew = prediction.Label == "new";
+
+            verifyEqual(testCase, sum(isNew), 2);
+            verifyEqual(testCase, prediction.Mean(isNew), [2; 2]);
+            verifyFalse(testCase, any(prediction.HasReturn(isNew)));
+        end
+
         function transportMatchesHandComputedEquation1(testCase)
             % Hand-checked eq. 1 (plus the eq. 2 blend) on a synthetic
             % 3-beam belief with a pure rotation of 0.03 rad: each

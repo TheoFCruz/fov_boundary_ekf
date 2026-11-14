@@ -118,21 +118,31 @@ for i = 1:numBeams
     end
 end
 
-% --- Fill jump-gap and newly-explored beams: extend the nearest covered
-% surface (sec. 4.7; jump gaps get the same fill, pending eqs. 8-11) ---
+% --- Fill jump-gap and newly-explored beams from the nearest covered beam:
+% extend its surface, or stay open if it is open (sec. 4.7; jump gaps get
+% the same fill, pending eqs. 8-11) ---
 isBlend = label == "blend";
-filledIndices = find(isBlend);
+% Covered beams got a value from an old pair: a surface (blend) or open
+% space (no-return). The nearest one decides whether a surface continues.
+coveredIndices = find(isBlend | label == "no-return");
 fillIndices = find(label == "jump-gap" | label == "new");
 for n = 1:numel(fillIndices)
     i = fillIndices(n);
-    if isempty(filledIndices)
+    if isempty(coveredIndices)
         meanNew(i) = maxRange;
         hasReturnNew(i) = false;
         continue;
     end
     thetaI = angles(i);
-    [~, nearestPosition] = min(abs(angles(filledIndices) - thetaI));
-    k = filledIndices(nearestPosition);
+    [~, nearestPosition] = min(abs(angles(coveredIndices) - thetaI));
+    k = coveredIndices(nearestPosition);
+
+    % Next to open space the beam stays open: never extend a distant surface.
+    if ~isBlend(k)
+        meanNew(i) = maxRange;
+        hasReturnNew(i) = false;
+        continue;
+    end
 
     % The neighbour on the covered side of k (away from the uncovered beam)
     % continues the same surface if it is also a blended return and passes
