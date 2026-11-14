@@ -64,7 +64,19 @@ measurement noise or a nonzero input covariance.
   §4.8), to be tuned by the normalised error per beam once the EKF correct
   step exists (stage 6).
 
-Verified: `TestTransport` 30/30; full suite `runtests('tests')` 109/109
+Review fixes (same day): two rounding effects at zero motion made a
+stationary observer's prediction wrong although its mean was exact. Beams n
+and f of a jump pair sit exactly half a beam from the mid-beam corner, and
+rounding put them inside the q_e test, adding (rho_f - rho_n)^2/4 (0.255 m^2
+at the box) to the box edges every step. And the sector-edge beams fell
+just outside their own pair's bracket, becoming "new" with variance
+sigma0^2. The half-beam test is now strict up to a relative 1e-9, and the
+bracket test tolerates 1e-12 rad. Means and HasReturn are unchanged on 900
+randomized cases (largest difference 9e-16); labels changed only in 78 of
+the 90 zero-motion cases (to the correct blend/no-return) and in none of
+the 810 moving ones.
+
+Verified: `TestTransport` 31/31; full suite `runtests('tests')` 110/110
 (headless). Not verified: desktop graphics (unchanged by this commit, so
 still as last recorded below); the NEES-based tuning of the new
 parameters, which needs the EKF correct step.

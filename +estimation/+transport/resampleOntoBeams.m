@@ -34,7 +34,10 @@ fromIndex = nan(numBeams, 2);
 fromWeight = nan(numBeams, 1);
 for i = 1:numBeams
     theta = angles(i);
-    isBracketing = pairs.Lower <= theta & theta <= pairs.Upper;
+    % A tiny tolerance: at zero motion a beam sits exactly on its own old
+    % bearing, and rounding in eq. 1 must not leave the sector-edge beams
+    % unbracketed.
+    isBracketing = pairs.Lower - 1e-12 <= theta & theta <= pairs.Upper + 1e-12;
 
     inSurface = pairs.IsSameSurface & isBracketing;
     if any(inSurface)

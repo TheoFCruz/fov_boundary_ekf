@@ -95,8 +95,11 @@ for p = 1:numel(jumpPairIndices)
     end
     candidateQe = (rhoFar - endpoints.Rho(nIndex)) ^ 2 / 4;
 
+    % Strictly inside half a beam: beams n and f sit exactly at half a beam
+    % from the mid-beam corner when nothing moves, and rounding must not put
+    % them inside (that would inflate edge beams of a stationary observer).
     angularOffset = mod(angles - cornerBearing + pi, 2 * pi) - pi;
-    nearCorner = abs(angularOffset) < beamSpacing / 2;
+    nearCorner = abs(angularOffset) < beamSpacing / 2 * (1 - 1e-9);
     qEdge(nearCorner) = max(qEdge(nearCorner), candidateQe);
 end
 

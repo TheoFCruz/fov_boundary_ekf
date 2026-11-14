@@ -159,6 +159,21 @@ classdef TestTransport < matlab.unittest.TestCase
             verifyFalse(testCase, prediction.HasReturn(81));
         end
 
+        function zeroMotionAddsNoEdgeTermAtRealEdges(testCase)
+            % Regression: at zero motion beams n and f sit exactly half a beam
+            % from the mid-beam corner; rounding must not add q_e there.
+            scenario = scenarios.boxInFrontOfWall();
+            pose = scenario.Observer.InitialPose;
+            [belief, ~] = transportCase(scenario, pose, pose);
+            belief.Covariance = 1e-4 * speye(numel(belief.Mean));
+            params = estimation.defaultTransportParams();
+            prediction = estimation.transportBoundary(belief, pose, params);
+            [~, ~, Q] = estimation.transport.propagateCovariance(belief, prediction, params);
+
+            verifyEqual(testCase, full(diag(Q)), ...
+                params.ProcessNoiseFloor * ones(numel(belief.Mean), 1), 'AbsTol', 1e-15);
+        end
+
         function transportMatchesHandComputedEquation1(testCase)
             % Hand-checked eq. 1 (plus the eq. 2 blend) on a synthetic
             % 3-beam belief with a pure rotation of 0.03 rad: each

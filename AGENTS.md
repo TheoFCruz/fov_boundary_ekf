@@ -35,7 +35,7 @@ No one document replaces the others. If a change affects a contract,
 architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
-verification honestly. The full suite (`runtests('tests')`) passed 109/109 on
+verification honestly. The full suite (`runtests('tests')`) passed 110/110 on
 2026-11-14, after `estimation.transport.propagateCovariance` (the eqs. 3-6,
 11 covariance propagation, `Sigma_bar = F*Sigma*F' + Q`, built from
 per-beam provenance `estimation.transportBoundary`'s stages now record;
