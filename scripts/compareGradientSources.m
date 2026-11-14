@@ -8,7 +8,8 @@
 % logged pose (offline only, decision D7: no oracle data enters the source
 % (ii) run itself). Prints the measures of plan sec. 8.2 (TrueVisible
 % fraction, status counts, median/90th-percentile angle to the oracle
-% gradient) and plots them with viz.plotGradientComparison.
+% gradient), plots them with viz.plotGradientComparison, and replays both
+% runs side by side with viz.animateComparison.
 
 run('startup.m');
 params = estimation.defaultTransportParams();
@@ -48,3 +49,6 @@ for i = 1:numel(results)
 end
 
 viz.plotGradientComparison(series);
+
+% Synchronized replay: trajectories and the applied gradient direction.
+viz.animateComparison({oracleResult, transportResult}, names);
