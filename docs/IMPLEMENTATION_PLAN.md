@@ -17,6 +17,28 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-14 status note: smaller time step instead of substepping
+
+The transport linearization assumes per-step motion below about one beam
+(‖Δp‖/ρ + |Δψ| ≲ Δθ, plan §4.8). Instead of substepping, the compact
+scenarios (`boxInFrontOfWall`, `clutteredField`, `openRoom`, `template`)
+now use `Time.Step = 0.025` s, which divides every stop time and reference
+breakpoint (0.03 does not). Measured ratio (‖Δp‖/ρ_min + |Δψ|)/Δθ per step:
+
+| Scenario / source | dt | median / 90th pct / max | steps > 1 |
+|---|---|---|---|
+| box, oracle | 0.05 → 0.025 | 0.31 / 0.86 / 1.59 → 0.14 / 0.41 / 0.68 | 5.4% → 0% |
+| box, source (ii) | 0.05 → 0.025 | 0.23 / 1.01 / 2.71 → 0.15 / 0.52 / 1.28 | 10.8% → 0.6% |
+| cluttered | 0.05 → 0.025 | max 0.50 → 0.25 | 0% → 0% |
+
+Run times are about 10-16 s (box) and 30 s (cluttered). The rate penalty
+acts per step, so it was retuned to keep the same smoothing per second:
+R = 6W = diag(6, 6, 1.5) at dt = 0.025 matches 2W at dt = 0.05 (input change
+per second: oracle 1.03 vs 1.13, source (ii) 1.38 vs 1.47); 4W was rougher.
+Visibility stays 1.000. `movingPair` and `controlTest` keep 0.05 s. Full
+suite 110/110. The future EKF will log the per-step ratio rather than
+substep.
+
 ## 0. 2026-11-14 status note: transport covariance propagation (P6)
 
 Implemented `estimation.transport.propagateCovariance(belief, prediction,

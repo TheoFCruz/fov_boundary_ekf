@@ -142,7 +142,7 @@ are pure numerics with no FoV geometry, so they are tested on their own.
 5. **QP (`control.solveCbfQp`, direct `quadprog`):** minimize
    `(u − u_nom)ᵀW(u − u_nom) + (u − u_prev)ᵀR(u − u_prev) + λδ²` subject to
    `coefficient·u + δ ≥ −γh − drift`, input bounds and `δ ≥ 0`. The rate term
-   (`InputRatePenalty` R, default 2W = diag(2, 2, 0.5)) damps input changes
+   (`InputRatePenalty` R, default 6W = diag(6, 6, 1.5), tuned at dt = 0.025 s) damps input changes
    between steps; `u_prev` is the previous applied input, kept in the policy
    state. It also handles the zero-authority and QP-failure
    fallbacks.

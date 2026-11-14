@@ -43,7 +43,8 @@ called only by the future EKF's `Predict`; see `docs/
 IMPLEMENTATION_PLAN.md`'s 2026-11-14 "transport covariance propagation
 (P6)" status note for measured results); earlier 101/101 the same day,
 after the input-rate penalty became the CBF-QP default
-(`InputRatePenalty` = 2W) and `viz.animateComparison` was added; earlier
+(`InputRatePenalty`, now 6W at the compact scenarios' dt = 0.025 s) and
+`viz.animateComparison` was added; earlier
 98/98 the same day, after checkpoint 2 of the boundary-transport prediction model
 (edges, disocclusion, and the transport predictor, gradient source (ii):
 `estimation.transport.edgeAndShadowCandidates`,
