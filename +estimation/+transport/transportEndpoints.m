@@ -12,6 +12,8 @@ function endpoints = transportEndpoints(angles, ranges, rangeVariances, deltaP, 
 % RangeVariance is each old variance projected onto the new range,
 % cos(alpha_j)^2 * Sigma_jj, with the tilt alpha_j = theta_j - deltaPsi -
 % phi_j (eq. 4); it feeds the uncertainty term of the eq. 7 jump test.
+% Tilt is alpha_j itself, kept for the eq. 4-5 Jacobian
+% (estimation.transport.propagateCovariance).
 
 oldPoints = ranges .* [cos(angles), sin(angles)];
 rotation = [cos(-deltaPsi), -sin(-deltaPsi); sin(-deltaPsi), cos(-deltaPsi)];
@@ -20,6 +22,6 @@ newPoints = (oldPoints - deltaP.') * rotation.';
 endpoints = struct();
 endpoints.Rho = hypot(newPoints(:, 1), newPoints(:, 2));
 endpoints.Phi = atan2(newPoints(:, 2), newPoints(:, 1));
-tilt = mod(angles - deltaPsi - endpoints.Phi + pi, 2 * pi) - pi;
-endpoints.RangeVariance = (cos(tilt) .^ 2) .* rangeVariances;
+endpoints.Tilt = mod(angles - deltaPsi - endpoints.Phi + pi, 2 * pi) - pi;
+endpoints.RangeVariance = (cos(endpoints.Tilt) .^ 2) .* rangeVariances;
 end
