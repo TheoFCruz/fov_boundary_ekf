@@ -113,7 +113,49 @@ classdef TestMetrics < matlab.unittest.TestCase
             end
         end
 
+        function filterConsistencySmokeTestOnAShortEkfRun(testCase)
+            % Structural check only (E2 measures and reports consistency
+            % separately; this is not a tuning assertion): a short boundary
+            % EKF run over two seeds produces a PerLabel table, a finite
+            % overall NEES, and step-ratio summary fields.
+            scenario = scenarios.openRoom();
+            scenario.Time.Stop = 0.5;
+            scenario.Observer.Reference = struct('Times', 0, 'Values', [0, 0, 0.2]);
+            scenario.Sensor.RangeNoiseStd = 0.01;
+            params = estimation.defaultTransportParams();
+            params.MeasurementNoiseStd = scenario.Sensor.RangeNoiseStd;
+            scenario.Estimator = estimation.makeBoundaryEkf(params);
+
+            results = cell(1, 2);
+            for seed = 1:2
+                seededScenario = scenario;
+                seededScenario.Sensor.Seed = seed;
+                results{seed} = simulation.runScenario(seededScenario);
+            end
+
+            report = metrics.filterConsistency(results);
+            verifyClass(testCase, report.PerLabel, 'table');
+            verifyGreaterThan(testCase, height(report.PerLabel), 0);
+            verifyTrue(testCase, isfinite(report.Overall.MeanNEES));
+            verifyTrue(testCase, isfinite(report.Overall.RMSE));
+            verifyTrue(testCase, isfinite(report.StepRatioMax));
+
+            % A single result (not wrapped in a cell) must work the same way.
+            singleReport = metrics.filterConsistency(results{1});
+            verifyEqual(testCase, singleReport.Overall.Count, ...
+                accumulatedCountOf(results{1}));
+        end
+
     end
+end
+
+function count = accumulatedCountOf(result)
+%ACCUMULATEDCOUNTOF Expected Overall.Count: beams over samples k >= 2.
+
+count = 0;
+for k = 2:numel(result.Beliefs)
+    count = count + numel(result.Beliefs{k}.Mean);
+end
 end
 
 function boundary = squareBoundary()
