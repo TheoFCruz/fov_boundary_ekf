@@ -444,9 +444,9 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 
 | File | Role |
 |---|---|
-| `animateSimulation.m` | Replay. World panel (obstacles, oracle/measurement/belief polygons, rays, agents, title with h and status) and range panel (oracle, measured, posterior). Always shows the final frame. |
-| `plotSimulationSummary.m` | Trajectories and the sampled-polygon distance over time. |
-| `plotControlDiagnostics.m` | h, inputs, slack and step sizes over time; prints status counts. |
+| `animateSimulation.m` | Replay. World panel (obstacles, oracle/measurement/belief polygons, optional rays, agents, title with h and status) and range panel with fixed limits (oracle, measured, posterior ±1σ, the leader's bearing, and for filter runs markers on edge/overlap/disoccluded/newly explored beams). Rays off by default; legends below the axes. Always shows the final frame. |
+| `plotSimulationSummary.m` | Trajectories (one legend entry for all obstacles) and the barrier h over time, with the intervals where the leader is truly hidden shaded. |
+| `plotControlDiagnostics.m` | The QP diagnostics: h, inputs and slack over time; prints status counts. |
 | `saveSimulationFrames.m` | Exports selected replay frames as PNGs under `frames/` (ignored by Git). |
 | `plotTransportCheck.m` | Plots `transportBoundary`'s predicted mean against a truth scan, beams marked by label, with s_i/r_far,i markers on disoccluded beams; replay-only diagnostic. |
 | `animateComparison.m` | Synchronized side-by-side replay of several runs on the same time grid (e.g. oracle vs source ii): true visible polygon, trajectories, agents, and the direction of each run's applied gradient (dh/dx, dh/dy); titles give t, h, status, and true visibility. |

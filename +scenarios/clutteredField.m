@@ -2,20 +2,19 @@ function scenario = clutteredField()
 %CLUTTEREDFIELD A leader explores forward through a field of small posts.
 %
 %   Short range: a 1 m, 100 deg FoV with 81 rays. The leader starts 0.5 m
-%   ahead of the observer and walks an open, weaving path that never
-%   returns, about 4.6 m over 28 s (about 0.165 m/s, a third of the 0.5 m/s
-%   input bound), then stops for the last 2 s. 0.1 m posts sit on a
-%   staggered grid with 0.6 m spacing, removed within 0.25 m of the leader's
-%   path and 0.5 m of the observer's start, so posts cross the line of
-%   sight as the pair moves. The observer holds a zero nominal reference: it
-%   moves only when the CBF-QP keeps the leader in view, so it must follow
+%   ahead of the observer and walks an open, weaving path forward, ending
+%   with a short leg back: about 5.8 m over 28 s (about 0.21 m/s, under half
+%   the 0.5 m/s input bound), then stops for the last 2 s. 0.1 m posts sit
+%   on a staggered grid with 0.6 m spacing, removed within 0.25 m of the
+%   leader's path and 0.5 m of the observer's start, so posts cross the line
+%   of sight as the pair moves. The observer holds a zero nominal reference:
+%   it moves only when the CBF-QP keeps the leader in view, so it must follow
 %   the leader out of range and around posts.
 %
-%   Measured with the oracle-boundary CBF (single run, noiseless, 2026-11-15):
-%   a static observer sees the leader on 11% of the samples; the CBF keeps
-%   it visible on 100%, with the constraint active on 86% of the steps and
-%   never infeasible. Slower leaders (40-60 s runs) behave the same and only
-%   take longer.
+%   Measured with the oracle-boundary CBF at default settings (single run,
+%   noiseless, 2026-11-15): a static observer sees the leader on 9% of the
+%   samples; the CBF keeps it visible on 100%, with the constraint active on
+%   84% of the steps and never infeasible.
 
 % Start from the standard runner configuration, then shrink the geometry.
 scenario = scenarios.movingPair();
@@ -28,7 +27,7 @@ scenario.Observer.Reference = struct('Times', 0, 'Values', [0, 0, 0]);
 
 % Open exploring path: constant-speed legs between waypoints, then a stop.
 % Leg durations are rounded to the time grid; zero yaw keeps body = world.
-waypoints = [0.5, 0.0; 1.6, 0.55; 2.3, 0.15; 2.8, -0.55; 3.5, -0.2; 4.5, 0.5; 3.5, 1.0];
+waypoints = [0.5, 0.0; 1.6, 0.55; 2.3, 0.15; 2.8, -0.55; 3.5, -0.2; 4.5, 0.5; 3.8, 1.0];
 legLengths = vecnorm(diff(waypoints), 2, 2);
 speed = sum(legLengths) / (scenario.Time.Stop - 2);
 legDurations = round(legLengths / speed / scenario.Time.Step) * scenario.Time.Step;

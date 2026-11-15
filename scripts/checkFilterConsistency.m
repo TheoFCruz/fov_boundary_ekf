@@ -5,11 +5,14 @@
 % reference at RangeNoiseStd 0.01 and 0.02, and (b) boxInFrontOfWall with a
 % scripted sideways-sliding observer reference (so disocclusions happen) at
 % RangeNoiseStd 0.01. Prints metrics.filterConsistency's per-label table for
-% each case (sec. 8.1). This only measures and reports consistency; it does
-% not tune the process-noise parameters.
+% each case (sec. 8.1), then a quick Q check: the three process-noise
+% coefficients (q0, qv, qw) scaled by a common factor, with mean NEES per
+% factor (NEES near 1 is consistent; below 1 means Q is too large).
 
 run('startup.m');
 seeds = 1:10;
+qScales = [1, 0.3, 0.1, 0.03, 0.01];   % factors on q0, qv, qw for the quick Q check
+qCheckSeeds = 1:5;
 
 cases = struct('Name', {}, 'Scenario', {});
 cases(end + 1) = struct('Name', 'openRoom, RangeNoiseStd 0.01', ...
@@ -30,6 +33,40 @@ for caseIndex = 1:numel(cases)
     end
     report = metrics.filterConsistency(results);
     metrics.printFilterConsistency(report);
+end
+
+% Quick Q check: rebuild each case's filter with Q scaled, no controller.
+fprintf('\n=== Quick Q check: mean NEES (overall / interpolated beams) ===\n');
+fprintf('%-52s', 'case');
+fprintf('  x%-12g', qScales);
+fprintf('\n');
+for caseIndex = 1:numel(cases)
+    fprintf('%-52s', cases(caseIndex).Name);
+    for qScale = qScales
+        scenario = cases(caseIndex).Scenario;
+        scenario.Estimator = estimation.makeBoundaryEkf( ...
+            scaledParams(scenario.Sensor.RangeNoiseStd, qScale));
+        results = cell(1, numel(qCheckSeeds));
+        for seedIndex = 1:numel(qCheckSeeds)
+            seededScenario = scenario;
+            seededScenario.Sensor.Seed = qCheckSeeds(seedIndex);
+            results{seedIndex} = simulation.runScenario(seededScenario);
+        end
+        report = metrics.filterConsistency(results);
+        blend = report.PerLabel(report.PerLabel.Label == "blend", :);
+        fprintf('  %5.2f / %5.2f ', report.Overall.MeanNEES, blend.MeanNEES);
+    end
+    fprintf('\n');
+end
+
+function params = scaledParams(rangeNoiseStd, qScale)
+%SCALEDPARAMS Default filter parameters with q0, qv, qw scaled by qScale.
+
+params = estimation.defaultTransportParams();
+params.MeasurementNoiseStd = rangeNoiseStd;
+params.ProcessNoiseFloor = qScale * params.ProcessNoiseFloor;
+params.TranslationNoise = qScale * params.TranslationNoise;
+params.RotationNoise = qScale * params.RotationNoise;
 end
 
 function scenario = openRoomCase(rangeNoiseStd)

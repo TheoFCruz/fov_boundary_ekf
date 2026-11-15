@@ -17,6 +17,50 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-15 status note: visualization for results, process-noise scale
+
+Visualization:
+- `viz.plotSimulationSummary`: one legend entry for all obstacles (the
+  cluttered field listed every post); no base marker; legend below the
+  axes; the right panel now shows the barrier h over time with the
+  intervals where the leader is truly hidden shaded, instead of the
+  belief-polygon distance.
+- `viz.animateSimulation`: the range panel has fixed limits (the whole
+  aperture, 0 to 1.05 r_max), so it no longer rescales every frame. It also
+  shows the leader's bearing and, for filter beliefs, markers on beams the
+  prediction labelled edge, overlap, disoccluded or newly explored. The
+  world panel drops the base and the leader heading arrow (the leader's yaw
+  is always 0). Legends sit below the axes, and the covariance note is a
+  subtitle.
+- `viz.plotControlDiagnostics` keeps only the QP diagnostics (h, inputs,
+  slack); the step-size figure was dropped.
+
+Process noise: `scripts/checkFilterConsistency.m` adds a quick check that
+scales q0, qv and qw by a common factor (scripted motion, no controller,
+5 seeds). Mean NEES (overall / surface beams):
+
+| Case | ×1 | ×0.3 | ×0.1 | ×0.03 | ×0.01 |
+|---|---|---|---|---|---|
+| openRoom, σ_r = 0.01 | 0.66 / 0.70 | 0.57 / 0.60 | 0.55 / 0.58 | 0.62 / 0.64 | 0.79 / 0.83 |
+| openRoom, σ_r = 0.02 | 0.56 / 0.59 | 0.55 / 0.57 | 0.61 / 0.64 | 0.77 / 0.81 | 1.04 / 1.09 |
+| box slide, σ_r = 0.01 | 0.33 / 0.72 | 0.30 / 0.64 | 0.31 / 0.65 | 0.37 / 0.79 | 0.50 / 1.07 |
+
+The defaults are now ×0.01 (q0 = 1e-6 m², qv = 2.5e-5, qw = 4e-4): the
+prototype's values were about 100× too large for dt = 0.025 s. The overall
+NEES stays low because open beams are predicted and measured at exactly
+r_max (error 0); the surface-beam value is the meaningful one. Not a full
+tuning: the hypothesis variances (σ0, κ) are unchanged and the curve is not
+monotone (gating interacts). With the smaller Q, consistent beams fail the
+0.99 gate about 1% of the time, so the static-observer test now allows
+gated beams (re-initialised to σ_r²). Source (iii) on `boxInFrontOfWall`
+(noise 0.05) still keeps the leader visible 100% with no infeasible steps.
+
+`scripts/runClutteredField.m` trims the leader's schedule to `stopTime`,
+so runs shorter than the path are valid. Theo extended the cluttered
+leader path (a final leg back to (3.8, 1.0); about 5.8 m at 0.21 m/s):
+static observer TrueVisible 0.086, oracle CBF 1.000 with the constraint
+active on 84% of steps and never infeasible.
+
 ## 0. 2026-11-15 status note: a more challenging cluttered field
 
 `scenarios.clutteredField` was redesigned: the old version kept its seven

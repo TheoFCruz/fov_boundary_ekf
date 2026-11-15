@@ -11,7 +11,7 @@ run('startup.m');
 source = "filter";               % "oracle" | "latest" | "filter" | "filter-conservative"
 rangeNoiseStd = 0.05;            % range noise (m); the filter assumes the same
 seed = 1;                        % noise seed
-stopTime = 30;                   % run length (s), a multiple of 0.025; 8 for quick checks
+stopTime = 30;                   % run length (s), multiple of 0.025 (e.g. 8 to test)
 
 % --- Settings: controller (CBF-QP) ---
 inputWeights = diag([1, 1, 0.25]);   % W: cost of deviating from the nominal input
@@ -33,6 +33,10 @@ replaySpeed = 1;                 % 2 = twice real time
 % Scenario: the leader weaves between small posts.
 scenario = scenarios.clutteredField();
 scenario.Time.Stop = stopTime;
+% A shorter run keeps only the leader's schedule breakpoints within it.
+keep = scenario.Leader.Reference.Times <= stopTime;
+scenario.Leader.Reference.Times = scenario.Leader.Reference.Times(keep);
+scenario.Leader.Reference.Values = scenario.Leader.Reference.Values(keep, :);
 scenario.Sensor.RangeNoiseStd = rangeNoiseStd;
 scenario.Sensor.Seed = seed;
 policyConfig = struct( ...
