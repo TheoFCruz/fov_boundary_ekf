@@ -14,8 +14,14 @@ function endpoints = transportEndpoints(angles, ranges, rangeVariances, deltaP, 
 % phi_j (eq. 4); it feeds the uncertainty term of the eq. 7 jump test.
 % Tilt is alpha_j itself, kept for the eq. 4-5 Jacobian
 % (estimation.transport.propagateCovariance).
+%
+% Ranges below 1 mm are treated as 1 mm. A point at the sensor has no
+% bearing (atan2(0, 0)), and eq. 4's dphi/dmu = sin(alpha) / rho would
+% divide by zero; noisy returns clipped to 0 next to a post produce exactly
+% that.
 
-oldPoints = ranges .* [cos(angles), sin(angles)];
+minimumRange = 1e-3;
+oldPoints = max(ranges, minimumRange) .* [cos(angles), sin(angles)];
 rotation = [cos(-deltaPsi), -sin(-deltaPsi); sin(-deltaPsi), cos(-deltaPsi)];
 newPoints = (oldPoints - deltaP.') * rotation.';
 

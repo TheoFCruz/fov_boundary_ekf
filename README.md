@@ -30,8 +30,9 @@ viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);
 For the CBF-QP experiment, use `scenarios.controlTest()` or
 `scenarios.boxInFrontOfWall()` (a compact occlusion scenario: a 0.2 m box in
 front of a wall, 2 m FoV, leader at 0.1 m/s), `scenarios.clutteredField()`
-(small posts scattered around a slow leader's path, loosely after the
-VisCoNetwork cluttered environment), or configure
+(a leader exploring forward on an open path through a staggered field of
+small posts with a 1 m FoV, which a static observer sees only 11% of the time),
+or configure
 `control.makeSignedDistanceCbfPolicy(config)` on a moving-pair scenario (see
 `scripts/runMovingPair.m`). It requires MATLAB Optimization Toolbox
 (`quadprog`) and is an experimental sampled-polygon baseline, not a safety

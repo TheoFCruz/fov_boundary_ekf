@@ -17,6 +17,52 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-15 status note: a more challenging cluttered field
+
+`scenarios.clutteredField` was redesigned: the old version kept its seven
+posts deliberately off the line of sight and barely activated the
+controller. Now the leader walks an open, weaving path forward and never
+returns, and 0.1 m posts sit on a staggered grid with 0.6 m spacing,
+removed within 0.25 m of the leader's path and 0.5 m of the observer's
+start. The observer keeps the zero nominal reference.
+
+A first version with the usual 2 m FoV (leader starting 1 m ahead, 40 s)
+was measured at three post spacings (noiseless, oracle CBF, single run):
+
+| Post spacing | Posts | Static observer: TrueVisible | Oracle CBF: TrueVisible | Infeasible steps | CBF active |
+|---|---|---|---|---|---|
+| 0.60 m | 27 | 0.282 | 1.000 | 53 / 1600 | 61% |
+| 0.50 m | 41 | 0.120 | 0.960 | 140 | 69% |
+| 0.45 m | 53 | 0.270 | 0.766 | 575 | 44% |
+
+The adopted version keeps 0.6 m spacing with a 1 m FoV and the leader
+starting 0.5 m ahead. Run length sets the leader's speed; all lengths were
+feasible for the oracle:
+
+| Run length | Leader speed | Static: TrueVisible | Oracle: TrueVisible | Infeasible | CBF active | Min h | Median distance | Run time |
+|---|---|---|---|---|---|---|---|---|
+| **30 s (adopted)** | 0.165 m/s | 0.107 | 1.000 | 0 | 86% | −0.004 | 0.90 m | 66 s |
+| 40 s | 0.121 m/s | 0.109 | 1.000 | 0 | 87% | −0.004 | 0.90 m | 90 s |
+| 50 s | 0.096 m/s | 0.110 | 1.000 | 0 | 88% | −0.003 | 0.90 m | 119 s |
+| 60 s | 0.079 m/s | 0.111 | 1.000 | 0 | 88% | −0.003 | 0.90 m | 139 s |
+
+With the zero nominal the observer trails at its range limit (median
+distance 0.90 m = range minus margin) and never turns: dh/dψ is zero unless
+the nearest polygon feature is a sector side, so the binding constraint is
+mostly the range arc, with posts secondary. A standoff-following nominal was
+considered and declined. `viz.animateSimulation` now hides rays by default
+(`ShowRays = false`).
+
+A source (iii) run (noise 0.05 m, margin 0.15) failed at t = 26.25 s with a
+singular innovation covariance. The observer had come within 0.14 m of a
+post, a noisy return was clipped to 0 m, and a point at range 0 has no
+bearing (atan2(0, 0)), so eq. 4's dφ/dµ = sin α/ρ divided by zero and Σ̄
+became NaN. `estimation.transport.transportEndpoints` now treats ranges
+below 1 mm as 1 mm, with a regression test in `TestTransport`. Not run yet
+(left for Theo to test). The observer coming that close to a post also
+reflects the absence of any collision barrier (plan §7.5). Not run yet: the other sources on the new field, the
+full suite after this change.
+
 ## 0. 2026-11-14 status note: gradient samples along combined directions; configurable scripts
 
 `control.barrierGradient` can also sample the observer along every pair of

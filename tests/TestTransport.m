@@ -174,6 +174,30 @@ classdef TestTransport < matlab.unittest.TestCase
                 params.ProcessNoiseFloor * ones(numel(belief.Mean), 1), 'AbsTol', 1e-15);
         end
 
+        function zeroRangeReturnGivesFiniteMeanAndCovariance(testCase)
+            % Regression: a noisy return clipped to 0 m (observer next to a
+            % post) has no bearing; the transport must stay finite.
+            angles = linspace(-deg2rad(50), deg2rad(50), 81).';
+            belief = struct();
+            belief.Angles = angles;
+            belief.Mean = 0.14 * ones(81, 1);
+            belief.Mean(80) = 0;
+            belief.Covariance = 0.05 ^ 2 * eye(81);
+            belief.HasReturn = true(81, 1);
+            belief.ObserverPose = [0, 0, 0];
+            belief.MaxRange = 1;
+            belief.OpeningAngle = deg2rad(100);
+            params = estimation.defaultTransportParams();
+
+            for pose = {[0, 0, 0], [0.01, 0.005, 0.01]}
+                prediction = estimation.transportBoundary(belief, pose{1}, params);
+                covariance = estimation.transport.propagateCovariance( ...
+                    belief, prediction, params);
+                verifyTrue(testCase, all(isfinite(prediction.Mean)));
+                verifyTrue(testCase, all(isfinite(covariance(:))));
+            end
+        end
+
         function transportMatchesHandComputedEquation1(testCase)
             % Hand-checked eq. 1 (plus the eq. 2 blend) on a synthetic
             % 3-beam belief with a pure rotation of 0.03 rad: each

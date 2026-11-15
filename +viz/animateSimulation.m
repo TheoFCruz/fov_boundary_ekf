@@ -14,7 +14,7 @@ parser.FunctionName = 'viz.animateSimulation';
 addParameter(parser, 'Visible', true);
 addParameter(parser, 'FrameRate', result.Config.Playback.FrameRate);
 addParameter(parser, 'Speed', result.Config.Playback.Speed);
-addParameter(parser, 'ShowRays', true);
+addParameter(parser, 'ShowRays', false);
 addParameter(parser, 'ShowHitPoints', false);
 addParameter(parser, 'AutoPlay', true);
 parse(parser, varargin{:});

@@ -367,7 +367,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `movingPair.m` | Base scenario: 10 m / 100° FoV, 81 rays, one wall, scripted references, reference policy. Others start from it. |
 | `controlTest.m` | No obstacles; the leader drives toward max range; oracle CBF with zero nominal input. |
 | `boxInFrontOfWall.m` | Compact 2 m layout: a 0.2 m box in front of a wall; the leader crosses the box's shadow; oracle CBF. |
-| `clutteredField.m` | Compact layout with 7 small posts; the leader visits waypoints over 32 s; oracle CBF. |
+| `clutteredField.m` | Short-range layout (1 m FoV): posts on a staggered 0.6 m grid, thinned near an open exploring leader path (30 s, about 0.165 m/s); zero nominal, oracle CBF. |
 | `openRoom.m` | Plan scenario S1: an enclosed room with no depth jumps; tests transport and newly-explored beams. |
 | `template.m` | Every configurable field written out with units; copy it to make new scenarios. |
 | `withGradientSource.m` | Sets `Estimator` and rebuilds the CBF policy consistently for one of the four gradient sources (`"oracle"`, `"latest"`, `"filter"`, `"filter-conservative"`); optional policy settings (e.g. `GradientDirections`) apply to every source alike. |

@@ -441,7 +441,7 @@ classdef TestSimulation < matlab.unittest.TestCase
 
             defaultDisplay = viz.animateSimulation(result, 'Visible', false, ...
                 'FrameRate', 1e9, 'Speed', 1e9);
-            verifyEqual(testCase, visibilityState(defaultDisplay.Rays), "on");
+            verifyEqual(testCase, visibilityState(defaultDisplay.Rays), "off");
             verifyEqual(testCase, visibilityState(defaultDisplay.HitPoints), "off");
 
             impactOnly = viz.animateSimulation(result, 'Visible', false, ...
