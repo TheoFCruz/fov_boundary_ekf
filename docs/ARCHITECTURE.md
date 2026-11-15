@@ -195,24 +195,55 @@ The runner never calls it. Only the CBF policy does, from its config.
   It ignores the belief and captures the obstacles when it is built. If you
   change `scenario.Obstacles`, `Observer.Fov` or `Sensor.NumRays`, rebuild
   the policy (see `+scenarios/template.m`). It must never reach an estimator.
-- **Methodology transport:** `estimation.predictBoundaryByTransport` is a
-  placeholder that errors. It will transport the belief mean to `pose`
-  (`docs/metodologia.pdf` §1.2) and return the polygon built from the
-  predicted mean. The barrier uses the expected boundary, not a confidence
-  bound such as μ − κσ (§1.4).
+- **Methodology transport (source ii):** `estimation.predictBoundaryByTransport`
+  calls `estimation.transportBoundary` (below) to move the belief mean to
+  `pose`, then builds the polygon from the predicted mean on **every** beam
+  (`fov.boundaryFromRanges`, regardless of `IsSupported`: plan §4.10, since
+  the CBF gradient needs exactly the hypothesis beams eq. 11 produces). A
+  predicted pair is a jump (decision D6) when its means differ by more than
+  `max(JumpThreshold, JumpRelative * nearer mean)` or its `HasReturn` flags
+  differ. A scenario or script plugs it into a policy as a closure over its
+  params, the same pattern as the oracle closure:
+  `@(belief, pose) estimation.predictBoundaryByTransport(belief, pose, params)`.
+  The barrier uses the expected boundary, not a confidence bound such as
+  μ − κσ (§1.4).
+
+`estimation.transportBoundary(belief, pose, params)` is the mean-only
+transport core (`docs/metodologia.pdf` §1.2, eqs. 1-2, 7-11): it transports
+every old beam's endpoint to the hypothetical `pose` and resamples onto the
+same fixed grid, labelling each new beam `blend`, `overlap`, `edge`,
+`disoccluded`, `no-return`, or `new`. It takes the same `(belief, pose)`
+pair as a `BoundaryPredictor` so `predictBoundaryByTransport` (building the
+polygon) and the future EKF's `Predict` step (with the real motion instead
+of a hypothetical displacement) can both call it directly. Each stage is
+one file in `estimation.transport` (listed in §8), so later rules (edges,
+disocclusion, covariance) are added as stages rather than growing one
+function. `IsSupported` is false only for `disoccluded` and `new` beams
+(decision D3): hypothesis, not evidence. `ShadowRange` (s_i) and `FarRange`
+(r_far,i) are set on disoccluded beams only (NaN elsewhere), for diagnostics
+and the free-space blend `mu_bar_i = s_i + eta * (r_far,i - s_i)` (eq. 11,
+`params.FreeSpaceFraction`, baseline η = 0.5; η = 0 is source (iv)). It does
+not yet propagate covariance (F, Q).
 
 ### How the methodology's sources map onto the slots
 
 | Source (§1.5) | `BoundaryPredictor` | `Estimator` | Exists? |
 |---|---|---|---|
 | (i) Oracle | `fov.visibleBoundaryAt` wrapper | any (unused for geometry) | Yes |
-| (ii) Latest reading | `estimation.predictBoundaryByTransport` | pass-through | Placeholder only |
+| (ii) Latest reading | `estimation.predictBoundaryByTransport` | pass-through | Yes |
 | (iii) EKF | `estimation.predictBoundaryByTransport` | EKF | No |
 | (iv) EKF, η = 0 | same, with η = 0 | EKF with η = 0 | No |
 
 The transport inside `predictBoundaryByTransport` is the prediction model of
 §1.2. The EKF's `Predict` will use the same transport with the real motion;
 the policy calls the predictor with hypothetical displacements.
+`control.compareGradients(result, predictor, referencePredictor,
+policyConfig)` re-evaluates two predictors (typically source (ii) and the
+oracle built from `result.Config`) against every logged belief and pose of
+an existing run, offline, for the angle between their observer-pose
+gradients, the heading-gradient difference, and each one's barrier value and
+status; `scripts/compareGradientSources.m` and `viz.plotGradientComparison`
+use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 
 ## 6. Data structures
 
@@ -256,6 +287,8 @@ the policy calls the predictor with hypothetical displacements.
 | `scripts/runBoxInFrontOfWall.m` | Box occlusion scenario (oracle CBF); summary, diagnostics, replay. |
 | `scripts/runClutteredField.m` | Cluttered-field scenario (oracle CBF); summary, diagnostics, replay. |
 | `scripts/plotControlDiagnostics.m` | Plots CBF diagnostics for a `result` already in the workspace. |
+| `scripts/checkTransport.m` | Plots `estimation.transportBoundary` against truth in `scenarios.openRoom` (rotation, translation) and `scenarios.boxInFrontOfWall` (sideways slide: edges, overlap, disocclusion). |
+| `scripts/compareGradientSources.m` | Runs `boxInFrontOfWall` with the oracle and with source (ii); reports and plots (`viz.plotGradientComparison`) the plan §8.2 measures via `control.compareGradients`. |
 
 ### `+scenarios`: experiment definitions (return a scenario struct, run nothing)
 
@@ -265,6 +298,7 @@ the policy calls the predictor with hypothetical displacements.
 | `controlTest.m` | No obstacles; the leader drives toward max range; oracle CBF with zero nominal input. |
 | `boxInFrontOfWall.m` | Compact 2 m layout: a 0.2 m box in front of a wall; the leader crosses the box's shadow; oracle CBF. |
 | `clutteredField.m` | Compact layout with 7 small posts; the leader visits waypoints over 32 s; oracle CBF. |
+| `openRoom.m` | Plan scenario S1: an enclosed room with no depth jumps; tests transport and newly-explored beams. |
 | `template.m` | Every configurable field written out with units; copy it to make new scenarios. |
 
 ### `+simulation`: the runner
@@ -310,7 +344,16 @@ the policy calls the predictor with hypothetical displacements.
 | File | Role |
 |---|---|
 | `makePassThroughEstimator.m` | `Initialize`/`Predict`/`Correct` handles; belief = latest scan, zero covariance, no-op predict. The EKF will be a sibling `make...Estimator`. |
-| `predictBoundaryByTransport.m` | Placeholder for the methodology boundary predictor (mean transport, then the polygon from the predicted mean); errors until implemented. |
+| `transportBoundary.m` | Mean-only transport and resampling core (eqs. 1-2, 7-11): moves `belief.Mean` to a hypothetical pose and labels each new beam blend/overlap/edge/disoccluded/no-return/new; calls the `+transport` stages in order. |
+| `+transport/relativeMotion.m` | Δp, Δψ from one pose to another, in the old sensor frame. |
+| `+transport/transportEndpoints.m` | Eq. 1: old endpoints into the new frame (ρ, φ), plus the eq. 4 range variance for the jump test. |
+| `+transport/classifyPairs.m` | Eq. 7: each consecutive old pair is a same surface, an open (no-return) pair, or a jump (`IsJumpPair`), with each side's `HasReturn` carried along for the edge/disocclusion stage. |
+| `+transport/resampleOntoBeams.m` | Eq. 2: blend within surfaces (nearest surface wins; `overlap` when candidates disagree beyond the jump bound), keep open space open, leave jump-only beams at the internal `gap` label for the next stage. |
+| `+transport/edgeAndShadowCandidates.m` | Eqs. 8-10: per jump pair, the mid-beam corner and shadow edge; resolves each `gap` beam to `edge` (t < 0, the near range) or `disoccluded` (t ≥ 0, the seen-free limit s_i), or `new` if no jump pair gives a usable candidate. Decision D4's exact-bearing match runs first. |
+| `+transport/applyFreeSpaceHypothesis.m` | Eq. 11: blends each disoccluded beam's s_i toward the background range r_far,i (extending the far surface through its same-surface neighbour) by `params.FreeSpaceFraction`. |
+| `+transport/fillUncoveredBeams.m` | Newly explored (`new`) beams from the nearest covered beam (every other label): extend its surface, or stay open next to open space. |
+| `defaultTransportParams.m` | The eq. 7 jump-test constants (`JumpThreshold`, `JumpRelative`) and the eq. 11 free-space fraction (`FreeSpaceFraction`) used by `transportBoundary`. |
+| `predictBoundaryByTransport.m` | Gradient source (ii): wraps `transportBoundary`, then builds the polygon from the predicted mean on every beam, with jump flags from decision D6. |
 
 ### `+control`
 
@@ -320,6 +363,7 @@ the policy calls the predictor with hypothetical displacements.
 | `makeSignedDistanceCbfPolicy.m` | **The CBF-QP policy** (§4): predict, barrier, gradient, solve. |
 | `barrierGradient.m` | Least-squares `dh/dpose` and `dh/dtarget` over beam-spacing samples (eq. 12). |
 | `solveCbfQp.m` | The slack CBF-QP with `quadprog`, its status and its fallbacks. |
+| `compareGradients.m` | Offline, per-step comparison of two boundary predictors' gradients on an existing `result` log (angle between position gradients, heading-gradient difference, each one's barrier value and status). |
 
 ### `+viz`: offline, reads `result` only
 
@@ -329,6 +373,8 @@ the policy calls the predictor with hypothetical displacements.
 | `plotSimulationSummary.m` | Trajectories and the sampled-polygon distance over time. |
 | `plotControlDiagnostics.m` | h, inputs, slack and step sizes over time; prints status counts. |
 | `saveSimulationFrames.m` | Exports selected replay frames as PNGs under `frames/` (ignored by Git). |
+| `plotTransportCheck.m` | Plots `transportBoundary`'s predicted mean against a truth scan, beams marked by label, with s_i/r_far,i markers on disoccluded beams; replay-only diagnostic. |
+| `plotGradientComparison.m` | Plots `control.compareGradients`' angle-to-oracle and each run's true visibility over time, one line per run. |
 
 ### `tests`
 
@@ -337,7 +383,8 @@ the policy calls the predictor with hypothetical displacements.
 | `TestModels.m` | `FovSpec`, `Observer`, `polygonObstacle` construction and validation. |
 | `TestRayCasting.m` | Ray–segment intersection, `castRays`, depth jumps, step construction, `isPointVisible`. |
 | `TestMetrics.m` | Signed distance and invalid-geometry behaviour. |
-| `TestControl.m` | CBF policy: statuses, fallbacks, input mapping, oracle gradient signs and magnitudes. |
+| `TestControl.m` | CBF policy: statuses, fallbacks, input mapping, oracle and source (ii) gradient signs and magnitudes, source (ii) closed-loop determinism. |
 | `TestSimulation.m` | Runner contracts: causal order, sample counts, determinism, noise, replay and export, metrics, scenarios. |
+| `TestTransport.m` | `estimation.transportBoundary`'s stages: blend/overlap, edges, disocclusion (eq. 11), newly explored, zero-motion identity, hand-computed corners. |
 
 Run with `run('startup.m'); runtests('tests')`.

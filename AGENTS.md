@@ -35,15 +35,26 @@ No one document replaces the others. If a change affects a contract,
 architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
-verification honestly. The full suite (`runtests('tests')`) passed 70/70 on
-2026-11-12, after vectorizing `fov.castRays` and the polygon self-intersection
-check (behavior-preserving; the follow-up ray-cast cleanup was rerun only
-with `TestRayCasting` and `TestMetrics`, and the boundary-predictor change
-with `TestControl`, `TestRayCasting` and `TestSimulation`; earlier 70/70 on 2026-10-28 after the
+verification honestly. The full suite (`runtests('tests')`) passed 98/98 on
+2026-11-14, after checkpoint 2 of the boundary-transport prediction model
+(edges, disocclusion, and the transport predictor, gradient source (ii):
+`estimation.transport.edgeAndShadowCandidates`,
+`estimation.transport.applyFreeSpaceHypothesis`,
+`estimation.predictBoundaryByTransport`, `control.compareGradients`; see
+`docs/IMPLEMENTATION_PLAN.md`'s 2026-11-14 status note for measured results);
+earlier 84/84 on 2026-11-13 after adding the mean-only boundary-transport
+checkpoint (`estimation.transportBoundary`, `scenarios.openRoom`; see `docs/
+IMPLEMENTATION_PLAN.md`'s 2026-11-13 status note for measured errors);
+earlier 70/70 on 2026-11-12 after vectorizing `fov.castRays` and the polygon
+self-intersection check (behavior-preserving; the follow-up ray-cast cleanup
+was rerun only with `TestRayCasting` and `TestMetrics`, and the
+boundary-predictor change with `TestControl`, `TestRayCasting` and
+`TestSimulation`; earlier still 70/70 on 2026-10-28 after the
 oracle-boundary CBF cleanup and the compact rescale of
 `scenarios.boxInFrontOfWall`). Desktop
 graphics replay of `scenarios.movingPair()` and `scenarios.boxInFrontOfWall()`
-remains unrun (headless-only verification).
+remains unrun (headless-only verification); `viz.plotTransportCheck` and
+`viz.plotGradientComparison` were only smoke-tested invisibly.
 
 `control.makeSignedDistanceCbfPolicy` requires a `BoundaryPredictor`,
 `boundary = predictor(belief, pose)`. The explicitly labeled oracle predictor
@@ -65,6 +76,7 @@ command, so a nonzero nominal does not cause stop-go motion.
   +internal/   Low-level geometry helpers
 +sensing/      Measurement-only adapters, currently raycastScan
 +estimation/   Replaceable boundary-estimator lifecycle
+  +transport/  Stages of the boundary transport (prediction model)
 +simulation/   Scenario validation, schedules, kinematics, causal runner/logs
 +control/      Observer-policy callbacks/seam
 +metrics/      Sampled-polygon distance computation
@@ -116,7 +128,12 @@ entry points include `simulation.runScenario`, `sensing.raycastScan`,
   an obstacle at maximum range and is not initially a Gaussian equality.
   `IsSupported` means only that a direction has justified boundary information;
   it does not certify a physical return or visibility between rays. Do not
-  fabricate a closed visible polygon from unsupported geometry.
+  fabricate a closed visible polygon from unsupported geometry. The one
+  exception is the transport predictor (`estimation.predictBoundaryByTransport`):
+  its polygon, built from the predicted mean on every beam including the
+  unsupported disoccluded and newly explored hypotheses, is a predicted
+  boundary for the CBF gradient, not a visibility claim
+  (`docs/matlab-implementation-plan.md`, section 4.10).
 - Raw casts are oracle data for simulation, evaluation, and rendering only.
 - Preserve the signed-distance convention: negative inside, positive outside,
   and zero on the boundary, exact only for the sampled polygon.

@@ -195,10 +195,125 @@ classdef TestControl < matlab.unittest.TestCase
             verifyEqual(testCase, quality, "unusable");
         end
 
-        function transportPredictorIsAPlaceholder(testCase)
-            verifyError(testCase, ...
-                @() estimation.predictBoundaryByTransport(struct(), [0; 0; 0]), ...
-                'estimation:predictBoundaryByTransport:NotImplemented');
+        function transportPredictorMatchesZeroMotionBoundaryFromRanges(testCase)
+            % Decision D6: at zero motion (the predictor queried at the
+            % belief's own pose) estimation.predictBoundaryByTransport must
+            % equal fov.boundaryFromRanges on the belief's own mean, with
+            % the same jump flags the predictor builds from it, since
+            % transportBoundary reproduces the belief exactly there.
+            [belief, scenario] = boxInFrontOfWallBelief();
+            params = estimation.defaultTransportParams();
+            pose = scenario.Observer.InitialPose;
+
+            boundary = estimation.predictBoundaryByTransport(belief, pose, params);
+
+            meanA = belief.Mean(1:end - 1);
+            meanB = belief.Mean(2:end);
+            jumpBound = max(params.JumpThreshold, params.JumpRelative .* min(meanA, meanB));
+            isJump = abs(meanA - meanB) > jumpBound ...
+                | belief.HasReturn(1:end - 1) ~= belief.HasReturn(2:end);
+            expected = fov.boundaryFromRanges( ...
+                pose, belief.Angles, belief.Mean, belief.OpeningAngle, isJump);
+            verifyEqual(testCase, boundary, expected, 'AbsTol', 1e-9);
+        end
+
+        function transportPredictorGradientMatchesOracleSignsNearCornerShadow(testCase)
+            % Hand-checked case (a): a noiseless pass-through belief at
+            % boxInFrontOfWall's initial pose, leader just inside the
+            % box corner's shadow (silhouette corner at (0.8, 0.1), leader
+            % at range 1.5 m, 6 deg). Source (ii) and the oracle must agree
+            % in sign on both position-gradient components; the angle
+            % between them is bounded after measuring it directly (17.55
+            % deg).
+            [belief, scenario] = boxInFrontOfWallBelief();
+            params = estimation.defaultTransportParams();
+            leaderPose = 1.5 * [cos(deg2rad(6)), sin(deg2rad(6)), 0];
+            observation = boxObservation(belief, scenario, leaderPose);
+
+            transportPredictor = @(b, p) estimation.predictBoundaryByTransport(b, p, params);
+            oraclePredictorHandle = boxOraclePredictor(scenario);
+            transportPolicy = control.makeSignedDistanceCbfPolicy( ...
+                struct('BoundaryPredictor', transportPredictor));
+            oraclePolicy = control.makeSignedDistanceCbfPolicy( ...
+                struct('BoundaryPredictor', oraclePredictorHandle));
+            [~, ~, transportDiagnostics] = transportPolicy(observation, [0, 0, 0], struct());
+            [~, ~, oracleDiagnostics] = oraclePolicy(observation, [0, 0, 0], struct());
+
+            transportPosition = transportDiagnostics.ObserverPoseGradient(1:2);
+            oraclePosition = oracleDiagnostics.ObserverPoseGradient(1:2);
+            verifyEqual(testCase, sign(transportPosition), sign(oraclePosition));
+            angleDeg = acosd(min(max(dot(transportPosition, oraclePosition) ...
+                / (norm(transportPosition) * norm(oraclePosition)), -1), 1));
+            testCase.log(sprintf('angle to oracle gradient near corner shadow = %.3f deg', angleDeg));
+            verifyLessThanOrEqual(testCase, angleDeg, 30);
+        end
+
+        function transportPredictorGradientIsSmallBehindBoxFace(testCase)
+            % Hand-checked case (b): leader directly behind the box's front
+            % face (the box occludes the wall entirely dead ahead), where
+            % dh/dx should be small since the nearest occluder does not
+            % change character as the observer moves forward a beam or two.
+            [belief, scenario] = boxInFrontOfWallBelief();
+            params = estimation.defaultTransportParams();
+            leaderPose = [0.95, 0, 0];
+            observation = boxObservation(belief, scenario, leaderPose);
+
+            transportPredictor = @(b, p) estimation.predictBoundaryByTransport(b, p, params);
+            policy = control.makeSignedDistanceCbfPolicy( ...
+                struct('BoundaryPredictor', transportPredictor));
+            [~, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
+
+            verifyEqual(testCase, diagnostics.GradientQuality, "usable");
+            % Measured magnitude 0.1557; report and bound loosely.
+            testCase.log(sprintf('abs(dh/dx) behind box face (source ii) = %.6g', ...
+                abs(diagnostics.ObserverPoseGradient(1))));
+            verifyLessThanOrEqual(testCase, abs(diagnostics.ObserverPoseGradient(1)), 0.3);
+        end
+
+        function transportPredictorGradientIsSmallOnMaxRangeArcNoObstacles(testCase)
+            % Hand-checked case (c): no obstacles, leader near the range
+            % arc; dh/dpsi should be small (rotating in place barely moves
+            % the open boundary's distance to a point near the cap).
+            scenario = scenarios.boxInFrontOfWall();
+            emptyObstacles = struct('Name', {}, 'Vertices', {});
+            pose0 = scenario.Observer.InitialPose;
+            scan = sensing.raycastScan(pose0, scenario.Observer.Fov, ...
+                emptyObstacles, scenario.Sensor, 0);
+            estimator = estimation.makePassThroughEstimator();
+            state = estimator.Initialize(struct());
+            [~, belief] = estimator.Correct(state, scan);
+            params = estimation.defaultTransportParams();
+            leaderPose = 1.9 * [cos(0.1), sin(0.1), 0];
+            observation = struct('Belief', belief, 'ObserverPose', pose0, ...
+                'LeaderPose', leaderPose, 'LeaderReference', [0, 0, 0]);
+
+            transportPredictor = @(b, p) estimation.predictBoundaryByTransport(b, p, params);
+            policy = control.makeSignedDistanceCbfPolicy( ...
+                struct('BoundaryPredictor', transportPredictor));
+            [~, ~, diagnostics] = policy(observation, [0, 0, 0], struct());
+
+            verifyEqual(testCase, diagnostics.GradientQuality, "usable");
+            testCase.log(sprintf('abs(dh/dpsi) on max-range arc, no obstacles (source ii) = %.6g', ...
+                abs(diagnostics.ObserverPoseGradient(3))));
+            verifyLessThanOrEqual(testCase, abs(diagnostics.ObserverPoseGradient(3)), 0.05);
+        end
+
+        function sourceTwoRunsEndToEndDeterministically(testCase)
+            % Closed-loop smoke test: source (ii) (the transport predictor,
+            % default params, pass-through estimator, noiseless) must run
+            % boxInFrontOfWall headless end to end, and twice from the same
+            % scenario must agree exactly (no hidden randomness or state).
+            params = estimation.defaultTransportParams();
+            transportPredictor = @(b, p) estimation.predictBoundaryByTransport(b, p, params);
+            buildScenario = @() setPolicyField(scenarios.boxInFrontOfWall(), ...
+                control.makeSignedDistanceCbfPolicy( ...
+                    struct('BoundaryPredictor', transportPredictor)));
+
+            firstResult = simulation.runScenario(buildScenario());
+            secondResult = simulation.runScenario(buildScenario());
+
+            verifyEqual(testCase, firstResult.ObserverPose, secondResult.ObserverPose);
+            verifyEqual(testCase, firstResult.LeaderPose, secondResult.LeaderPose);
         end
 
         function oraclePredictorGradientMatchesContinuousGeometrySign(testCase)
@@ -291,6 +406,39 @@ end
 function predictor = oraclePredictor(fovSpec, obstacles, numRays)
 %ORACLEPREDICTOR Oracle boundary predictor, as the scenario factories build it.
 predictor = @(belief, pose) fov.visibleBoundaryAt(pose, fovSpec, obstacles, numRays);
+end
+
+function [belief, scenario] = boxInFrontOfWallBelief()
+%BOXINFRONTOFWALLBELIEF Noiseless pass-through belief at S2's initial pose.
+
+scenario = scenarios.boxInFrontOfWall();
+pose = scenario.Observer.InitialPose;
+scan = sensing.raycastScan(pose, scenario.Observer.Fov, ...
+    scenario.Obstacles, scenario.Sensor, 0);
+estimator = estimation.makePassThroughEstimator();
+state = estimator.Initialize(struct());
+[~, belief] = estimator.Correct(state, scan);
+end
+
+function observation = boxObservation(belief, scenario, leaderPose)
+%BOXOBSERVATION Observation at S2's initial pose with a chosen leader pose.
+
+observation = struct('Belief', belief, ...
+    'ObserverPose', scenario.Observer.InitialPose, ...
+    'LeaderPose', leaderPose, 'LeaderReference', [0, 0, 0]);
+end
+
+function predictor = boxOraclePredictor(scenario)
+%BOXORACLEPREDICTOR Oracle predictor over S2's own obstacles.
+
+predictor = @(belief, pose) fov.visibleBoundaryAt( ...
+    pose, scenario.Observer.Fov, scenario.Obstacles, scenario.Sensor.NumRays);
+end
+
+function scenario = setPolicyField(scenario, policy)
+%SETPOLICYFIELD Swap a scenario's observer policy (for a fresh closure each run).
+
+scenario.Observer.Policy = policy;
 end
 
 function policy = emptyFieldPolicy(overrides)
