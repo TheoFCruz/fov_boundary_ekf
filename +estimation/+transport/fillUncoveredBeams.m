@@ -1,10 +1,12 @@
-function [predictedMean, hasReturn] = fillUncoveredBeams( ...
-        angles, endpoints, pairs, hasReturnOld, predictedMean, hasReturn, label, maxRange)
+function [predictedMean, hasReturn, fromIndex, fromWeight] = fillUncoveredBeams( ...
+        angles, endpoints, pairs, hasReturnOld, predictedMean, hasReturn, label, ...
+        fromIndex, fromWeight, maxRange)
 %FILLUNCOVEREDBEAMS Fill "new" beams from the nearest transported old point.
 %
-%   [predictedMean, hasReturn] = estimation.transport.fillUncoveredBeams( ...
-%       angles, endpoints, pairs, hasReturnOld, predictedMean, hasReturn, ...
-%       label, maxRange)
+%   [predictedMean, hasReturn, fromIndex, fromWeight] = ...
+%       estimation.transport.fillUncoveredBeams(angles, endpoints, pairs, ...
+%       hasReturnOld, predictedMean, hasReturn, label, fromIndex, ...
+%       fromWeight, maxRange)
 %
 % Newly explored beams (methodology sec. 1.2, "Regiões recém-exploradas";
 % plan sec. 4.7) have no old point around them: either no old pair brackets
@@ -24,7 +26,11 @@ function [predictedMean, hasReturn] = fillUncoveredBeams( ...
 % A result at or beyond maxRange is no return. Using the old points rather
 % than the already resampled beams keeps an isolated surface at the sector
 % edge (e.g. one ray on a box) from being dropped when the motion moves it
-% between new beams.
+% between new beams. fromIndex records [k, NaN] (weight 1), the old point
+% the fill used, for estimation.transport.propagateCovariance's variance
+% (sec. 4.7: sigma0^2 + (kappa * mu_bar_i * delta_i)^2, with delta_i the
+% angular distance to k); the F row stays zero (no cross-covariance with the
+% old estimate).
 
 numOld = numel(endpoints.Rho);
 fillIndices = find(label == "new");
@@ -32,6 +38,8 @@ for n = 1:numel(fillIndices)
     i = fillIndices(n);
     theta = angles(i);
     [~, k] = min(abs(endpoints.Phi - theta));
+    fromIndex(i, :) = [k, NaN];
+    fromWeight(i) = 1;
 
     if ~hasReturnOld(k)
         predictedMean(i) = maxRange;

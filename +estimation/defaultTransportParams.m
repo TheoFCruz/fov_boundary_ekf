@@ -3,11 +3,10 @@ function params = defaultTransportParams()
 %
 %   params = estimation.defaultTransportParams()
 %
-% The jump-test constants needed by the eq. 7 same-surface test and the
-% free-space fraction eta for disocclusions (eq. 11). The newly-explored
-% variance terms sigma0/kappa and the process-noise Q coefficients (docs/
-% matlab-implementation-plan.md secs. 4.7, 4.8) are added by whichever
-% change introduces covariance propagation.
+% The jump-test constants needed by the eq. 7 same-surface test, the
+% free-space fraction eta for disocclusions (eq. 11), the process-noise Q
+% coefficients (eq. 6) and the newly-explored variance terms sigma0/kappa
+% (sec. 4.7), used by estimation.transport.propagateCovariance.
 
 params = struct();
 % Absolute jump threshold tau (m): two transported ranges farther apart than
@@ -22,4 +21,22 @@ params.JumpRelative = 0.08;
 % used as the gradient source (iv) ablation; eta = 1 assumes nothing lies
 % between the corner and the background.
 params.FreeSpaceFraction = 0.5;
+
+% Process noise Q_ii = q0 + qv*|dp|^2 + qw*dpsi^2 (+ qe,i on edge beams,
+% eq. 6). Starting values only, to be tuned by the normalised error per
+% beam once the EKF correct step exists (plan sec. 4.8, stage 6).
+% Interpolation-error floor (m^2).
+params.ProcessNoiseFloor = 1e-4;
+% Translation growth (m^2 per m^2 of |dp|^2).
+params.TranslationNoise = 0.0025;
+% Rotation growth (m^2 per rad^2 of dpsi^2).
+params.RotationNoise = 0.04;
+
+% Newly-explored beam variance sigma_bar^2 = sigma0^2 + (kappa*mu_bar*delta)^2
+% (sec. 4.7), with delta the angular distance to the old point the fill
+% used. sigma0 is a fraction of MaxRange; kappa scales the angular term.
+% Starting values only, to be tuned the same way as the Q coefficients
+% above.
+params.NewBeamSigmaFraction = 1 / 3;
+params.NewBeamSlope = 1;
 end

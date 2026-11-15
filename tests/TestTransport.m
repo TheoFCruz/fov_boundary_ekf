@@ -159,6 +159,21 @@ classdef TestTransport < matlab.unittest.TestCase
             verifyFalse(testCase, prediction.HasReturn(81));
         end
 
+        function zeroMotionAddsNoEdgeTermAtRealEdges(testCase)
+            % Regression: at zero motion beams n and f sit exactly half a beam
+            % from the mid-beam corner; rounding must not add q_e there.
+            scenario = scenarios.boxInFrontOfWall();
+            pose = scenario.Observer.InitialPose;
+            [belief, ~] = transportCase(scenario, pose, pose);
+            belief.Covariance = 1e-4 * speye(numel(belief.Mean));
+            params = estimation.defaultTransportParams();
+            prediction = estimation.transportBoundary(belief, pose, params);
+            [~, ~, Q] = estimation.transport.propagateCovariance(belief, prediction, params);
+
+            verifyEqual(testCase, full(diag(Q)), ...
+                params.ProcessNoiseFloor * ones(numel(belief.Mean), 1), 'AbsTol', 1e-15);
+        end
+
         function transportMatchesHandComputedEquation1(testCase)
             % Hand-checked eq. 1 (plus the eq. 2 blend) on a synthetic
             % 3-beam belief with a pure rotation of 0.03 rad: each
@@ -480,6 +495,330 @@ classdef TestTransport < matlab.unittest.TestCase
             verifyLessThan(testCase, max(err), 5e-3);
         end
 
+        function finiteDifferenceJacobianMatchesPredictionGradient(testCase)
+            % P6, the permanent test of plan sec. 4.9: perturb each old mean
+            % mu_j by +-epsilon and compare the central-difference column of
+            % prediction.Mean against estimation.transport.propagateCovariance's
+            % F, on surface beams (blend/overlap/edge) whose Label,
+            % FromIndex and HasReturn are unaffected by the perturbation and
+            % whose Mean stays strictly inside (0, MaxRange) throughout.
+            % Hypothesis beams (disoccluded, new) are excluded here: the
+            % methodology deliberately sets their F row to zero (no
+            % cross-covariance) even though their filled mean does depend
+            % on a neighbouring mu_j; that is checked separately
+            % (hypothesisRowsAreZeroOnDisocclusionAndNewBeams). Uses the
+            % pass-through belief (zero covariance) so the eq. 7 jump test's
+            % uncertainty term is unaffected by epsilon.
+            params = estimation.defaultTransportParams();
+            epsilon = 1e-6;
+            beamSpacing = deg2rad(100) / 80;
+            motions = { ...
+                [0, 0, 0.5 * beamSpacing]; [0, 0, 2 * beamSpacing]; ...
+                [0.02, 0, 0]; [0.08, 0, 0]; ...
+                [0.03, 0.02, 0.3 * beamSpacing]; [0.08, -0.04, 1.5 * beamSpacing]};
+
+            overallMax = 0;
+            for scenario = [scenarios.openRoom(), scenarios.boxInFrontOfWall()]
+                pose = scenario.Observer.InitialPose;
+                scan = sensing.raycastScan(pose, scenario.Observer.Fov, ...
+                    scenario.Obstacles, scenario.Sensor, 0);
+                estimator = estimation.makePassThroughEstimator();
+                state = estimator.Initialize(struct());
+                [~, belief] = estimator.Correct(state, scan);
+
+                for m = 1:numel(motions)
+                    poseB = pose + motions{m};
+                    err = finiteDifferenceError(belief, poseB, params, epsilon);
+                    overallMax = max(overallMax, err);
+                end
+            end
+            % Measured max error 3.7e-10 m across openRoom and
+            % boxInFrontOfWall, rotation-only, translation-only and mixed
+            % motions up to ~2 beam spacings; bound with headroom. This also
+            % settles decision Q3's sign convention: eq. 5 as derived
+            % matches the finite difference without flipping any sign.
+            verifyLessThan(testCase, overallMax, 1e-5);
+        end
+
+        function pureRotationBlendRowsAreInterpolationWeightsSummingToOne(testCase)
+            % At alpha = 0 (pure rotation, no translation), eq. 5 reduces to
+            % F_ia = w, F_ib = 1 - w: a blend row is exactly the eq. 2
+            % interpolation weights, which sum to 1.
+            params = estimation.defaultTransportParams();
+            scenario = scenarios.openRoom();
+            pose = scenario.Observer.InitialPose;
+            scan = sensing.raycastScan(pose, scenario.Observer.Fov, ...
+                scenario.Obstacles, scenario.Sensor, 0);
+            estimator = estimation.makePassThroughEstimator();
+            state = estimator.Initialize(struct());
+            [~, belief] = estimator.Correct(state, scan);
+            beamSpacing = deg2rad(100) / 80;
+            poseB = pose + [0, 0, 0.7 * beamSpacing];
+
+            prediction = estimation.transportBoundary(belief, poseB, params);
+            [~, F] = estimation.transport.propagateCovariance(belief, prediction, params);
+            isBlend = find(prediction.Label == "blend");
+            verifyGreaterThan(testCase, numel(isBlend), 50);
+            for n = 1:numel(isBlend)
+                i = isBlend(n);
+                a = prediction.FromIndex(i, 1);
+                verifyEqual(testCase, full(F(i, a)), prediction.FromWeight(i), 'AbsTol', 1e-12);
+                verifyEqual(testCase, full(sum(F(i, :))), 1, 'AbsTol', 1e-12);
+            end
+        end
+
+        function zeroMotionGivesIdentityRowsOnSurfaceBeams(testCase)
+            % At zero motion every surface beam (blend/overlap/edge with a
+            % return) is its own transported bearing, so its F row must be
+            % the unit vector e_i; every other row (no-return, and "new"
+            % beams that can still appear at the sector edge, decision D1)
+            % is zero.
+            params = estimation.defaultTransportParams();
+            for scenario = [scenarios.openRoom(), scenarios.boxInFrontOfWall()]
+                pose = scenario.Observer.InitialPose;
+                scan = sensing.raycastScan(pose, scenario.Observer.Fov, ...
+                    scenario.Obstacles, scenario.Sensor, 0);
+                estimator = estimation.makePassThroughEstimator();
+                state = estimator.Initialize(struct());
+                [~, belief] = estimator.Correct(state, scan);
+
+                prediction = estimation.transportBoundary(belief, pose, params);
+                [~, F] = estimation.transport.propagateCovariance(belief, prediction, params);
+                isSurface = prediction.HasReturn ...
+                    & ismember(prediction.Label, ["blend", "overlap", "edge"]);
+                numBeams = numel(belief.Mean);
+                identity = speye(numBeams);
+                verifyEqual(testCase, full(F(isSurface, :)), full(identity(isSurface, :)), ...
+                    'AbsTol', 1e-9);
+                verifyEqual(testCase, full(F(~isSurface, :)), ...
+                    zeros(sum(~isSurface), numBeams), 'AbsTol', 1e-9);
+            end
+        end
+
+        function hypothesisRowsAreZeroOnDisocclusionAndNewBeams(testCase)
+            % Disoccluded (c x d does not depend on mu_n, eq. 11) and newly
+            % explored (sec. 4.7) beams both get a zero F row by model
+            % construction; so does a no-return beam.
+            params = estimation.defaultTransportParams();
+            [belief, scenario] = boxInFrontOfWallBelief();
+            pose = scenario.Observer.InitialPose + [0, 0.06, 0];
+            prediction = estimation.transportBoundary(belief, pose, params);
+            [~, F] = estimation.transport.propagateCovariance(belief, prediction, params);
+
+            isHypothesis = ismember(prediction.Label, ["disoccluded", "new", "no-return"]);
+            verifyGreaterThan(testCase, sum(prediction.Label == "disoccluded"), 0);
+            verifyEqual(testCase, full(F(isHypothesis, :)), ...
+                zeros(sum(isHypothesis), numel(belief.Mean)));
+        end
+
+        function edgeVarianceLandsOnBeamsWithinHalfABeamOfTheTransportedCorner(testCase)
+            % Hand-check of eq. 8's qe,i in boxInFrontOfWall with a 5 mm
+            % sideways motion (too small to open a disocclusion window, so
+            % the box/wall jump pairs resolve to "edge", as in
+            % boxInFrontOfWallTinyMotionGivesEdgeEqualToNearRange above).
+            % Independently recomputing each jump pair's corner bearing and
+            % (rho_f - rho_n)^2/4 and comparing against Qdiag - qBase
+            % confirms qe,i on the beams next to the box/wall corners
+            % (pairs 35, 46) and shows it vanishes on the far corners near
+            % the sector edges (pairs 20, 61, nearly in line with the wall).
+            params = estimation.defaultTransportParams();
+            [belief, scenario] = boxInFrontOfWallBelief();
+            pose = scenario.Observer.InitialPose + [0, 0.005, 0];
+            prediction = estimation.transportBoundary(belief, pose, params);
+            [~, ~, Q] = estimation.transport.propagateCovariance(belief, prediction, params);
+            Qdiag = full(diag(Q));
+
+            [deltaP, deltaPsi] = estimation.transport.relativeMotion(belief.ObserverPose, pose);
+            qBase = params.ProcessNoiseFloor + params.TranslationNoise * (deltaP.' * deltaP) ...
+                + params.RotationNoise * deltaPsi ^ 2;
+
+            isEdge = prediction.Label == "edge";
+            boxEdge = find(isEdge & abs(prediction.Angles) < deg2rad(15));
+            verifyGreaterThan(testCase, numel(boxEdge), 0);
+            endpoints = estimation.transport.transportEndpoints( ...
+                belief.Angles, belief.Mean, full(diag(belief.Covariance)), deltaP, deltaPsi);
+            pairs = estimation.transport.classifyPairs(endpoints, belief.HasReturn, params);
+            beamSpacing = mean(diff(belief.Angles));
+
+            % Independently recompute each jump pair's eq. 8 corner bearing
+            % and (rho_f - rho_n)^2/4, and take the largest one that lands
+            % within half a beam of each boxEdge beam, exactly as
+            % estimation.transport.propagateCovariance does, but from the
+            % stage functions directly rather than via its output.
+            % Measured: pairs 35/46 (the box/wall corners) give qe = 0.2555
+            % and 0.2554.
+            jumpPairIndices = find(pairs.IsJumpPair);
+            for n = 1:numel(boxEdge)
+                i = boxEdge(n);
+                theta = prediction.Angles(i);
+                bestQe = 0;
+                for p = 1:numel(jumpPairIndices)
+                    j = jumpPairIndices(p);
+                    if pairs.ReturnA(j) && pairs.ReturnB(j)
+                        isANear = belief.Mean(j) <= belief.Mean(j + 1);
+                    else
+                        isANear = pairs.ReturnA(j);
+                    end
+                    if isANear
+                        thetaNear = belief.Angles(j); muNear = belief.Mean(j);
+                        nIndex = j; fIndex = j + 1;
+                    else
+                        thetaNear = belief.Angles(j + 1); muNear = belief.Mean(j + 1);
+                        nIndex = j + 1; fIndex = j;
+                    end
+                    thetaStar = (thetaNear + belief.Angles(j) + belief.Angles(j + 1) - thetaNear) / 2;
+                    rotation = [cos(-deltaPsi), -sin(-deltaPsi); sin(-deltaPsi), cos(-deltaPsi)];
+                    corner = (muNear * [cos(thetaStar), sin(thetaStar)] - deltaP.') * rotation.';
+                    cornerBearing = atan2(corner(2), corner(1));
+                    if abs(mod(theta - cornerBearing + pi, 2 * pi) - pi) >= beamSpacing / 2
+                        continue;
+                    end
+                    rhoFar = endpoints.Rho(fIndex);
+                    if ~belief.HasReturn(fIndex)
+                        rhoFar = belief.MaxRange;
+                    end
+                    bestQe = max(bestQe, (rhoFar - endpoints.Rho(nIndex)) ^ 2 / 4);
+                end
+                verifyGreaterThan(testCase, bestQe, 0);
+                verifyEqual(testCase, Qdiag(i) - qBase, bestQe, 'RelTol', 1e-9);
+            end
+
+            % Far from any corner (deep front wall), qe must be exactly zero.
+            deepFrontWall = abs(prediction.Angles) < deg2rad(5) & prediction.HasReturn ...
+                & ismember(prediction.Label, ["blend", "overlap", "edge"]);
+            verifyEqual(testCase, Qdiag(deepFrontWall), qBase * ones(sum(deepFrontWall), 1), ...
+                'AbsTol', 1e-12);
+        end
+
+        function hypothesisVariancesMatchEquationsAndHaveNoCrossCovariance(testCase)
+            % Eq. 11's disocclusion variance, sec. 4.7's newly-explored
+            % variance, and Q1's no-return floor, each on a sideways slide
+            % in boxInFrontOfWall; plus the hypothesis rows/columns of
+            % Sigma_bar having zero off-diagonal entries even with a
+            % correlated, nonzero input covariance (eq. 11: "the element
+            % begins with no cross-covariance").
+            params = estimation.defaultTransportParams();
+            [belief, scenario] = boxInFrontOfWallBelief();
+            numBeams = numel(belief.Mean);
+            % A nonzero, spatially-correlated input covariance, so the
+            % cross-covariance check is not vacuous.
+            belief.Covariance = 0.01 ^ 2 * eye(numBeams) ...
+                + 0.0003 * (diag(ones(numBeams - 1, 1), 1) + diag(ones(numBeams - 1, 1), -1));
+            pose = scenario.Observer.InitialPose + [0, 0.06, 0];
+            prediction = estimation.transportBoundary(belief, pose, params);
+            [covariance, ~, Q] = estimation.transport.propagateCovariance(belief, prediction, params);
+            Qdiag = full(diag(Q));
+
+            [deltaP, deltaPsi] = estimation.transport.relativeMotion(belief.ObserverPose, pose);
+            qBase = params.ProcessNoiseFloor + params.TranslationNoise * (deltaP.' * deltaP) ...
+                + params.RotationNoise * deltaPsi ^ 2;
+            endpoints = estimation.transport.transportEndpoints( ...
+                belief.Angles, belief.Mean, full(diag(belief.Covariance)), deltaP, deltaPsi);
+
+            isDisoccluded = find(prediction.Label == "disoccluded");
+            verifyGreaterThan(testCase, numel(isDisoccluded), 0);
+            expectedDisoccluded = (prediction.FarRange(isDisoccluded) ...
+                - prediction.ShadowRange(isDisoccluded)) .^ 2 / 12 + params.ProcessNoiseFloor;
+            verifyEqual(testCase, Qdiag(isDisoccluded), expectedDisoccluded, 'RelTol', 1e-9);
+
+            isNew = find(prediction.Label == "new");
+            sigma0 = params.NewBeamSigmaFraction * belief.MaxRange;
+            for n = 1:numel(isNew)
+                i = isNew(n);
+                k = prediction.FromIndex(i, 1);
+                delta = abs(mod(prediction.Angles(i) - endpoints.Phi(k) + pi, 2 * pi) - pi);
+                expectedNew = sigma0 ^ 2 + (params.NewBeamSlope * prediction.Mean(i) * delta) ^ 2;
+                verifyEqual(testCase, Qdiag(i), expectedNew, 'RelTol', 1e-9);
+            end
+
+            isNoReturn = ~prediction.HasReturn & prediction.Label ~= "disoccluded" ...
+                & prediction.Label ~= "new";
+            verifyGreaterThan(testCase, sum(isNoReturn), 0);
+            verifyEqual(testCase, Qdiag(isNoReturn), qBase * ones(sum(isNoReturn), 1), 'AbsTol', 1e-12);
+
+            isHypothesis = ismember(prediction.Label, ["disoccluded", "new"]) | isNoReturn;
+            hypothesisRows = full(covariance(isHypothesis, :));
+            hypothesisIndices = find(isHypothesis);
+            for n = 1:numel(hypothesisIndices)
+                hypothesisRows(n, hypothesisIndices(n)) = 0;
+            end
+            verifyEqual(testCase, hypothesisRows, zeros(size(hypothesisRows)), 'AbsTol', 1e-12);
+        end
+
+        function zeroMotionAddsOnlyTheProcessNoiseFloorOnSurfaceBeams(testCase)
+            % At zero motion, dp = dpsi = 0, so qBase is just the
+            % interpolation floor q0; restricted to "blend" beams, which
+            % openRoom has no shortage of and which never sit next to a
+            % jump pair's corner (unlike the "edge" beams at its no-return
+            % wedge borders, decision D2), so qe,i is exactly zero. With
+            % F = I on surface beams (zeroMotionGivesIdentityRowsOnSurfaceBeams),
+            % Sigma_bar = Sigma + q0 on those rows/columns.
+            params = estimation.defaultTransportParams();
+            scenario = scenarios.openRoom();
+            pose = scenario.Observer.InitialPose;
+            scan = sensing.raycastScan(pose, scenario.Observer.Fov, ...
+                scenario.Obstacles, scenario.Sensor, 0);
+            estimator = estimation.makePassThroughEstimator();
+            state = estimator.Initialize(struct());
+            [~, belief] = estimator.Correct(state, scan);
+            numBeams = numel(belief.Mean);
+            belief.Covariance = 0.01 ^ 2 * eye(numBeams) ...
+                + 0.0003 * (diag(ones(numBeams - 1, 1), 1) + diag(ones(numBeams - 1, 1), -1));
+
+            prediction = estimation.transportBoundary(belief, pose, params);
+            covariance = estimation.transport.propagateCovariance(belief, prediction, params);
+            isSurface = prediction.Label == "blend";
+            verifyGreaterThan(testCase, sum(isSurface), 50);
+            expected = belief.Covariance + params.ProcessNoiseFloor * eye(numBeams);
+            verifyEqual(testCase, full(covariance(isSurface, isSurface)), ...
+                full(expected(isSurface, isSurface)), 'AbsTol', 1e-9);
+        end
+
+        function longRunWithoutCorrectionStaysSymmetricAndPositiveSemidefinite(testCase)
+            % Feeding Sigma_bar back as the next step's prior, with no
+            % correction, for about 20 small successive motions: Sigma_bar
+            % must stay exactly symmetric (after symmetrisation) and PSD
+            % (plan sec. 4.9). Measured: the mean beam variance rises from
+            % the initial 1e-4 m^2 (uncorrelated 0.01 m std) to about
+            % 0.008-0.02 m^2 as it mixes in the larger hypothesis variances,
+            % then stays in that range; min/max eigenvalue ratio about 1e-4,
+            % comfortably above -1e-12.
+            params = estimation.defaultTransportParams();
+            scenario = scenarios.boxInFrontOfWall();
+            pose = scenario.Observer.InitialPose;
+            scan = sensing.raycastScan(pose, scenario.Observer.Fov, ...
+                scenario.Obstacles, scenario.Sensor, 0);
+            numBeams = scenario.Sensor.NumRays;
+
+            belief = struct();
+            belief.Angles = scan.Angles;
+            belief.Mean = scan.Ranges;
+            belief.HasReturn = scan.HasReturn;
+            belief.Covariance = 0.01 ^ 2 * eye(numBeams);
+            belief.ObserverPose = pose;
+            belief.MaxRange = scan.MaxRange;
+            belief.OpeningAngle = scan.OpeningAngle;
+
+            currentPose = pose;
+            for step = 1:20
+                offsetStep = [0.02 * cos(0.3 * step), 0.02 * sin(0.3 * step), deg2rad(1)];
+                newPose = currentPose + offsetStep;
+                prediction = estimation.transportBoundary(belief, newPose, params);
+                covariance = estimation.transport.propagateCovariance(belief, prediction, params);
+
+                verifyEqual(testCase, covariance, covariance.', 'AbsTol', 0);
+                eigenvalues = eig(full(covariance));
+                verifyGreaterThanOrEqual(testCase, min(eigenvalues), ...
+                    -1e-12 * max(eigenvalues));
+
+                belief.Mean = prediction.Mean;
+                belief.HasReturn = prediction.HasReturn;
+                belief.Covariance = covariance;
+                belief.ObserverPose = newPose;
+                currentPose = newPose;
+            end
+        end
+
         function fullFovBeliefErrorsWithIdentifier(testCase)
             belief = struct();
             belief.Angles = [-0.1; 0; 0.1];
@@ -596,4 +935,45 @@ prediction = estimation.transportBoundary( ...
     belief, poseB, estimation.defaultTransportParams());
 scored = prediction.Label == "blend" & ~isNearWedge;
 maxError = max(abs(prediction.Mean(scored) - truth.Ranges(scored)));
+end
+
+function maxErr = finiteDifferenceError(belief, poseB, params, epsilon)
+%FINITEDIFFERENCEERROR Max |dMean_i/dmu_j - F_ij| over unaffected surface beams.
+%
+% Compares every column j (perturbing belief.Mean(j) by +-epsilon) against
+% estimation.transport.propagateCovariance's F, scoring only beams i whose
+% Label, FromIndex and HasReturn are the same at mu_j, mu_j + epsilon and
+% mu_j - epsilon, restricted to surface labels (blend/overlap/edge) and
+% comfortably inside (0, MaxRange) so clamping never contaminates the
+% comparison.
+
+numBeams = numel(belief.Mean);
+prediction = estimation.transportBoundary(belief, poseB, params);
+[~, F] = estimation.transport.propagateCovariance(belief, prediction, params);
+isSurfaceLabel = ismember(prediction.Label, ["blend", "overlap", "edge"]);
+margin = 1e-9 * belief.MaxRange;
+
+maxErr = 0;
+for j = 1:numBeams
+    perturbedUp = belief;
+    perturbedUp.Mean(j) = belief.Mean(j) + epsilon;
+    perturbedDown = belief;
+    perturbedDown.Mean(j) = belief.Mean(j) - epsilon;
+    predictionUp = estimation.transportBoundary(perturbedUp, poseB, params);
+    predictionDown = estimation.transportBoundary(perturbedDown, poseB, params);
+    finiteDifferenceColumn = (predictionUp.Mean - predictionDown.Mean) / (2 * epsilon);
+
+    scored = isSurfaceLabel ...
+        & predictionUp.Label == prediction.Label & predictionDown.Label == prediction.Label ...
+        & prediction.HasReturn & predictionUp.HasReturn & predictionDown.HasReturn ...
+        & prediction.Mean > margin & prediction.Mean < belief.MaxRange - margin ...
+        & predictionUp.Mean > margin & predictionUp.Mean < belief.MaxRange - margin ...
+        & predictionDown.Mean > margin & predictionDown.Mean < belief.MaxRange - margin;
+    for i = find(scored).'
+        if isequaln(predictionUp.FromIndex(i, :), prediction.FromIndex(i, :)) ...
+                && isequaln(predictionDown.FromIndex(i, :), prediction.FromIndex(i, :))
+            maxErr = max(maxErr, abs(finiteDifferenceColumn(i) - full(F(i, j))));
+        end
+    end
+end
 end

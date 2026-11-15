@@ -318,6 +318,31 @@ classdef TestSimulation < matlab.unittest.TestCase
                 'viz:animateSimulation:InvalidOption');
         end
 
+        function comparisonReplayUpdatesEveryPanelInSync(testCase)
+            scenario = scenarios.boxInFrontOfWall();
+            scenario.Time.Stop = 0.2;
+            first = simulation.runScenario(scenario);
+            second = simulation.runScenario(scenario);
+            beforeFigures = findall(groot, 'Type', 'figure');
+            testCase.addTeardown(@() deleteNewFigures(beforeFigures));
+            handles = viz.animateComparison({first, second}, ["A", "B"], ...
+                'Visible', false, 'AutoPlay', false);
+
+            finalFrame = numel(first.Time);
+            handles.UpdateFrame(finalFrame);
+            for index = 1:2
+                verifyEqual(testCase, get(handles.Panels{index}.Observer, 'XData'), ...
+                    first.ObserverPose(finalFrame, 1));
+                verifyEqual(testCase, get(handles.Panels{index}.Gradient, 'Visible'), ...
+                    matlab.lang.OnOffSwitchState.on);
+            end
+            shorter = scenario;
+            shorter.Time.Stop = 0.1;
+            verifyError(testCase, @() viz.animateComparison( ...
+                {first, simulation.runScenario(shorter)}, ["A", "B"], 'Visible', false), ...
+                'viz:animateComparison:InvalidInput');
+        end
+
         function savesDefaultKeyFramesInScenarioTimestampDirectory(testCase)
             result = simulation.runScenario(shortScenario());
             result.Config.Name = "Frame demo / control?";

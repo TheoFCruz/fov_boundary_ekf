@@ -1,8 +1,9 @@
-function [predictedMean, hasReturn, label] = resampleOntoBeams(angles, pairs, maxRange, params)
+function [predictedMean, hasReturn, label, fromIndex, fromWeight] = ...
+        resampleOntoBeams(angles, pairs, maxRange, params)
 %RESAMPLEONTOBEAMS Assign each fixed beam from the old pairs bracketing it (eq. 2).
 %
-%   [predictedMean, hasReturn, label] = estimation.transport.resampleOntoBeams( ...
-%       angles, pairs, maxRange, params)
+%   [predictedMean, hasReturn, label, fromIndex, fromWeight] = ...
+%       estimation.transport.resampleOntoBeams(angles, pairs, maxRange, params)
 %
 % A beam bracketed by any same-surface pair takes the linear interpolation
 % in angle, w * rho_a + (1 - w) * rho_b with w = (phi_b - theta) / (phi_b -
@@ -13,7 +14,10 @@ function [predictedMean, hasReturn, label] = resampleOntoBeams(angles, pairs, ma
 % nearest candidate wins (collision rule); if the farthest candidate exceeds
 % the nearest by more than max(JumpThreshold, JumpRelative * nearest), a near
 % surface is sliding in front of a farther one and the beam is labelled
-% "overlap" instead of "blend" (still at the nearest value).
+% "overlap" instead of "blend" (still at the nearest value). fromIndex
+% records the winning pair's old indices [a, b] = [j, j+1] and fromWeight
+% its weight w on a (NaN off blend/overlap beams), for
+% estimation.transport.propagateCovariance's eq. 5 Jacobian row.
 %
 % Otherwise a bracketing open (no-return) pair keeps it at maxRange with no
 % return ("no-return"). A beam bracketed only by jump pairs is left NaN with
@@ -26,19 +30,28 @@ numBeams = numel(angles);
 predictedMean = nan(numBeams, 1);
 hasReturn = false(numBeams, 1);
 label = strings(numBeams, 1);
+fromIndex = nan(numBeams, 2);
+fromWeight = nan(numBeams, 1);
 for i = 1:numBeams
     theta = angles(i);
-    isBracketing = pairs.Lower <= theta & theta <= pairs.Upper;
+    % A tiny tolerance: at zero motion a beam sits exactly on its own old
+    % bearing, and rounding in eq. 1 must not leave the sector-edge beams
+    % unbracketed.
+    isBracketing = pairs.Lower - 1e-12 <= theta & theta <= pairs.Upper + 1e-12;
 
     inSurface = pairs.IsSameSurface & isBracketing;
     if any(inSurface)
+        pairIndices = find(inSurface);
         weight = (pairs.PhiB(inSurface) - theta) ...
             ./ (pairs.PhiB(inSurface) - pairs.PhiA(inSurface));
         candidates = weight .* pairs.RhoA(inSurface) ...
             + (1 - weight) .* pairs.RhoB(inSurface);
-        nearest = min(candidates);
+        [nearest, nearestPosition] = min(candidates);
         predictedMean(i) = nearest;
         hasReturn(i) = true;
+        winner = pairIndices(nearestPosition);
+        fromIndex(i, :) = [winner, winner + 1];
+        fromWeight(i) = weight(nearestPosition);
         overlapBound = max(params.JumpThreshold, params.JumpRelative * nearest);
         if max(candidates) - nearest > overlapBound
             label(i) = "overlap";

@@ -28,7 +28,16 @@ function prediction = transportBoundary(belief, pose, params)
 % (decision D3): hypothesis beams, not evidence, even though the predicted
 % mean covers every beam regardless (plan sec. 4.10).
 %
-% Not yet handled (later checkpoints): covariance propagation (F, Q).
+% FromIndex (N-by-2) and FromWeight (N-by-1) record each beam's provenance
+% as the stages built it: the old-grid indices [a, b] and weight w on a for
+% a blend/overlap beam (eq. 5), [j, NaN] (weight 1) for an edge beam or an
+% exact-bearing match, [k, NaN] (weight 1) for a "new" beam's fill point,
+% and NaN otherwise (no-return and disoccluded beams, which have no
+% cross-covariance with the old estimate). This function and
+% estimation.predictBoundaryByTransport stay mean-only;
+% estimation.transport.propagateCovariance uses FromIndex/FromWeight and
+% these labels to build the Jacobian F and process noise Q for the future
+% EKF's Predict (docs/metodologia.pdf sec. 1.2, eqs. 3-6, 11).
 
 if belief.OpeningAngle == 2*pi
     error('estimation:transportBoundary:FullFovUnsupported', ...
@@ -49,17 +58,18 @@ pose = reshape(double(pose), 1, 3);
 endpoints = estimation.transport.transportEndpoints( ...
     angles, oldMean, full(diag(belief.Covariance)), deltaP, deltaPsi);
 pairs = estimation.transport.classifyPairs(endpoints, hasReturnOld, params);
-[predictedMean, hasReturn, label] = ...
+[predictedMean, hasReturn, label, fromIndex, fromWeight] = ...
     estimation.transport.resampleOntoBeams(angles, pairs, maxRange, params);
-[predictedMean, hasReturn, label, shadowRange, nearIndex, farIndex] = ...
+[predictedMean, hasReturn, label, shadowRange, nearIndex, farIndex, fromIndex, fromWeight] = ...
     estimation.transport.edgeAndShadowCandidates(angles, pairs, endpoints, ...
         oldMean, hasReturnOld, deltaP, deltaPsi, ...
-        predictedMean, hasReturn, label, maxRange, params);
+        predictedMean, hasReturn, label, fromIndex, fromWeight, maxRange, params);
 [predictedMean, farRange] = estimation.transport.applyFreeSpaceHypothesis( ...
     angles, pairs, endpoints, hasReturnOld, nearIndex, farIndex, ...
     shadowRange, label, predictedMean, maxRange, params);
-[predictedMean, hasReturn] = estimation.transport.fillUncoveredBeams( ...
-    angles, endpoints, pairs, hasReturnOld, predictedMean, hasReturn, label, maxRange);
+[predictedMean, hasReturn, fromIndex, fromWeight] = estimation.transport.fillUncoveredBeams( ...
+    angles, endpoints, pairs, hasReturnOld, predictedMean, hasReturn, label, ...
+    fromIndex, fromWeight, maxRange);
 
 % A surface transported beyond the cap is out of range: no return (sec. 4.9).
 isBeyondCap = predictedMean > maxRange;
@@ -77,6 +87,8 @@ prediction.IsSupported = isSupported;
 prediction.Label = label;
 prediction.ShadowRange = shadowRange;
 prediction.FarRange = farRange;
+prediction.FromIndex = fromIndex;
+prediction.FromWeight = fromWeight;
 prediction.Angles = angles;
 prediction.ObserverPose = reshape(double(pose), 1, 3);
 end

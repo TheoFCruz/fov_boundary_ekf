@@ -1,16 +1,22 @@
-function [predictedMean, hasReturn, label, shadowRange, nearIndex, farIndex] = ...
-        edgeAndShadowCandidates(angles, pairs, endpoints, oldMean, hasReturnOld, ...
-        deltaP, deltaPsi, predictedMean, hasReturn, label, maxRange, params)
+function [predictedMean, hasReturn, label, shadowRange, nearIndex, farIndex, ...
+        fromIndex, fromWeight] = edgeAndShadowCandidates(angles, pairs, endpoints, ...
+        oldMean, hasReturnOld, deltaP, deltaPsi, predictedMean, hasReturn, label, ...
+        fromIndex, fromWeight, maxRange, params)
 %EDGEANDSHADOWCANDIDATES Resolve "gap" beams into edge or disocclusion candidates.
 %
-%   [predictedMean, hasReturn, label, shadowRange, nearIndex, farIndex] = ...
-%       estimation.transport.edgeAndShadowCandidates(angles, pairs, ...
-%       endpoints, oldMean, hasReturnOld, deltaP, deltaPsi, predictedMean, ...
-%       hasReturn, label, maxRange, params)
+%   [predictedMean, hasReturn, label, shadowRange, nearIndex, farIndex, ...
+%       fromIndex, fromWeight] = estimation.transport.edgeAndShadowCandidates( ...
+%       angles, pairs, endpoints, oldMean, hasReturnOld, deltaP, deltaPsi, ...
+%       predictedMean, hasReturn, label, fromIndex, fromWeight, maxRange, params)
 %
 % nearIndex/farIndex are the winning jump pair's old-grid indices n and f
 % (NaN off disoccluded beams), for estimation.transport.applyFreeSpaceHypothesis
-% to find f's same-surface neighbour f' when filling r_far.
+% to find f's same-surface neighbour f' when filling r_far. fromIndex/
+% fromWeight (in/out, from estimation.transport.resampleOntoBeams) record,
+% for estimation.transport.propagateCovariance's Jacobian row: [n, NaN] with
+% weight 1 for an "edge" beam, whether from the exact-bearing match or the
+% corner construction (eq. 4's single-entry F row, F_in = cos(alpha_n));
+% left NaN (no cross-covariance, eq. 11) for a "disoccluded" beam.
 %
 % Beams labelled "gap" by resampleOntoBeams are bracketed only by jump pairs
 % (methodology sec. 1.2, "Arestas" and "Oclusões novas"/"Desoclusões",
@@ -58,6 +64,8 @@ for n = 1:numel(gapIndices)
     if hasReturnOld(matchIndex)
         predictedMean(i) = endpoints.Rho(matchIndex);
         hasReturn(i) = true;
+        fromIndex(i, :) = [matchIndex, NaN];
+        fromWeight(i) = 1;
     else
         predictedMean(i) = maxRange;
         hasReturn(i) = false;
@@ -119,6 +127,13 @@ label(resolved) = bestType(resolved);
 shadowRange(resolved) = bestShadow(resolved);
 nearIndex = bestNear;
 farIndex = bestFar;
+
+% Only the "edge" (t < 0) branch has a nonzero F row (eq. 4): "disoccluded"
+% keeps fromIndex NaN, since c x d does not depend on mu_n (eq. 11).
+isEdgeResolved = resolved & bestType == "edge";
+fromIndex(isEdgeResolved, 1) = bestNear(isEdgeResolved);
+fromIndex(isEdgeResolved, 2) = NaN;
+fromWeight(isEdgeResolved) = 1;
 
 % No jump pair gave a usable candidate (parallel beam, or none bracket it):
 % fall back to newly explored, filled by fillUncoveredBeams.

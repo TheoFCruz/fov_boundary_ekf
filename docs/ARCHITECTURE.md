@@ -140,8 +140,11 @@ are pure numerics with no FoV geometry, so they are tested on their own.
 4. **CBF terms:** `coefficient = ∂h/∂q · G(ψ)` maps body inputs to ḣ.
    `TargetDrift = ∂h/∂y · ẏ` is ∂h/∂t from the leader's known velocity.
 5. **QP (`control.solveCbfQp`, direct `quadprog`):** minimize
-   `(u − u_nom)ᵀW(u − u_nom) + λδ²` subject to `coefficient·u + δ ≥ −γh − drift`,
-   input bounds and `δ ≥ 0`. It also handles the zero-authority and QP-failure
+   `(u − u_nom)ᵀW(u − u_nom) + (u − u_prev)ᵀR(u − u_prev) + λδ²` subject to
+   `coefficient·u + δ ≥ −γh − drift`, input bounds and `δ ≥ 0`. The rate term
+   (`InputRatePenalty` R, default 2W = diag(2, 2, 0.5)) damps input changes
+   between steps; `u_prev` is the previous applied input, kept in the policy
+   state. It also handles the zero-authority and QP-failure
    fallbacks.
 6. **Status and fallback:** `nominal-feasible`, `cbf-corrected` or
    `relaxed-with-slack`, based on whether the constraint can be met within the
@@ -222,8 +225,19 @@ function. `IsSupported` is false only for `disoccluded` and `new` beams
 (decision D3): hypothesis, not evidence. `ShadowRange` (s_i) and `FarRange`
 (r_far,i) are set on disoccluded beams only (NaN elsewhere), for diagnostics
 and the free-space blend `mu_bar_i = s_i + eta * (r_far,i - s_i)` (eq. 11,
-`params.FreeSpaceFraction`, baseline η = 0.5; η = 0 is source (iv)). It does
-not yet propagate covariance (F, Q).
+`params.FreeSpaceFraction`, baseline η = 0.5; η = 0 is source (iv)).
+
+Alongside `Mean`, each stage also records per-beam provenance, `FromIndex`
+(N-by-2 old-grid indices) and `FromWeight` (N-by-1): `[a, b]` and the
+weight on `a` for a blend/overlap beam, `[j, NaN]` for an edge beam or an
+exact-bearing match, `[k, NaN]` for a "new" beam's fill point, and `NaN`
+otherwise (no-return and disoccluded beams, which have no cross-covariance
+with the old estimate). `estimation.transport.propagateCovariance(belief,
+prediction, params)` uses that provenance to build the eq. 3-5 Jacobian `F`
+and the eq. 6/11 process noise `Q`, returning `Sigma_bar = F*Sigma*F' + Q`
+(symmetrised, kept full). It is a separate function, called only by the
+future EKF's `Predict` step; `transportBoundary` and
+`predictBoundaryByTransport` stay mean-only and do not call it.
 
 ### How the methodology's sources map onto the slots
 
@@ -344,7 +358,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | File | Role |
 |---|---|
 | `makePassThroughEstimator.m` | `Initialize`/`Predict`/`Correct` handles; belief = latest scan, zero covariance, no-op predict. The EKF will be a sibling `make...Estimator`. |
-| `transportBoundary.m` | Mean-only transport and resampling core (eqs. 1-2, 7-11): moves `belief.Mean` to a hypothetical pose and labels each new beam blend/overlap/edge/disoccluded/no-return/new; calls the `+transport` stages in order. |
+| `transportBoundary.m` | Mean-only transport and resampling core (eqs. 1-2, 7-11): moves `belief.Mean` to a hypothetical pose and labels each new beam blend/overlap/edge/disoccluded/no-return/new; calls the `+transport` stages in order and records each beam's provenance (`FromIndex`, `FromWeight`). |
 | `+transport/relativeMotion.m` | Δp, Δψ from one pose to another, in the old sensor frame. |
 | `+transport/transportEndpoints.m` | Eq. 1: old endpoints into the new frame (ρ, φ), plus the eq. 4 range variance for the jump test. |
 | `+transport/classifyPairs.m` | Eq. 7: each consecutive old pair is a same surface, an open (no-return) pair, or a jump (`IsJumpPair`), with each side's `HasReturn` carried along for the edge/disocclusion stage. |
@@ -352,7 +366,8 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `+transport/edgeAndShadowCandidates.m` | Eqs. 8-10: per jump pair, the mid-beam corner and shadow edge; resolves each `gap` beam to `edge` (t < 0, the near range) or `disoccluded` (t ≥ 0, the seen-free limit s_i), or `new` if no jump pair gives a usable candidate. Decision D4's exact-bearing match runs first. |
 | `+transport/applyFreeSpaceHypothesis.m` | Eq. 11: blends each disoccluded beam's s_i toward the background range r_far,i (extending the far surface through its same-surface neighbour) by `params.FreeSpaceFraction`. |
 | `+transport/fillUncoveredBeams.m` | Newly explored (`new`) beams from the nearest covered beam (every other label): extend its surface, or stay open next to open space. |
-| `defaultTransportParams.m` | The eq. 7 jump-test constants (`JumpThreshold`, `JumpRelative`) and the eq. 11 free-space fraction (`FreeSpaceFraction`) used by `transportBoundary`. |
+| `+transport/propagateCovariance.m` | Eqs. 3-6, 11: `Sigma_bar = F*Sigma*F' + Q` from `prediction`'s provenance and labels (two-entry blend/overlap rows, single-entry edge rows, zero hypothesis rows) and the process noise (motion terms, the eq. 8 edge term, and each hypothesis's own variance). Called only by the future EKF's `Predict`; `transportBoundary` and `predictBoundaryByTransport` stay mean-only. |
+| `defaultTransportParams.m` | The eq. 7 jump-test constants (`JumpThreshold`, `JumpRelative`), the eq. 11 free-space fraction (`FreeSpaceFraction`), the eq. 6 process-noise coefficients (`ProcessNoiseFloor`, `TranslationNoise`, `RotationNoise`) and the sec. 4.7 newly-explored variance terms (`NewBeamSigmaFraction`, `NewBeamSlope`), used by `transportBoundary` and `propagateCovariance`. |
 | `predictBoundaryByTransport.m` | Gradient source (ii): wraps `transportBoundary`, then builds the polygon from the predicted mean on every beam, with jump flags from decision D6. |
 
 ### `+control`
@@ -362,7 +377,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `referencePolicy.m` | No-control policy: returns the nominal input. |
 | `makeSignedDistanceCbfPolicy.m` | **The CBF-QP policy** (§4): predict, barrier, gradient, solve. |
 | `barrierGradient.m` | Least-squares `dh/dpose` and `dh/dtarget` over beam-spacing samples (eq. 12). |
-| `solveCbfQp.m` | The slack CBF-QP with `quadprog`, its status and its fallbacks. |
+| `solveCbfQp.m` | The slack CBF-QP with `quadprog` (nominal tracking plus the input-rate penalty), its status and its fallbacks. |
 | `compareGradients.m` | Offline, per-step comparison of two boundary predictors' gradients on an existing `result` log (angle between position gradients, heading-gradient difference, each one's barrier value and status). |
 
 ### `+viz`: offline, reads `result` only
@@ -374,6 +389,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `plotControlDiagnostics.m` | h, inputs, slack and step sizes over time; prints status counts. |
 | `saveSimulationFrames.m` | Exports selected replay frames as PNGs under `frames/` (ignored by Git). |
 | `plotTransportCheck.m` | Plots `transportBoundary`'s predicted mean against a truth scan, beams marked by label, with s_i/r_far,i markers on disoccluded beams; replay-only diagnostic. |
+| `animateComparison.m` | Synchronized side-by-side replay of several runs on the same time grid (e.g. oracle vs source ii): true visible polygon, trajectories, agents, and the direction of each run's applied gradient (dh/dx, dh/dy); titles give t, h, status, and true visibility. |
 | `plotGradientComparison.m` | Plots `control.compareGradients`' angle-to-oracle and each run's true visibility over time, one line per run. |
 
 ### `tests`
@@ -385,6 +401,6 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `TestMetrics.m` | Signed distance and invalid-geometry behaviour. |
 | `TestControl.m` | CBF policy: statuses, fallbacks, input mapping, oracle and source (ii) gradient signs and magnitudes, source (ii) closed-loop determinism. |
 | `TestSimulation.m` | Runner contracts: causal order, sample counts, determinism, noise, replay and export, metrics, scenarios. |
-| `TestTransport.m` | `estimation.transportBoundary`'s stages: blend/overlap, edges, disocclusion (eq. 11), newly explored, zero-motion identity, hand-computed corners. |
+| `TestTransport.m` | `estimation.transportBoundary`'s stages: blend/overlap, edges, disocclusion (eq. 11), newly explored, zero-motion identity, hand-computed corners; `estimation.transport.propagateCovariance`'s Jacobian F (the permanent finite-difference check) and Q (eqs. 6, 11), including the long-run symmetry/PSD check. |
 
 Run with `run('startup.m'); runtests('tests')`.
