@@ -11,7 +11,7 @@ scenario = struct();
 scenario.Name = "Template scenario";
 
 % Time grid (s). (Stop - Start) / Step must be an integer.
-scenario.Time = struct('Start', 0, 'Stop', 16, 'Step', 0.05);
+scenario.Time = struct('Start', 0, 'Stop', 16, 'Step', 0.025);
 
 % Observer: world pose [x, y, yaw] (m, m, rad) and field of view.
 scenario.Observer = struct();

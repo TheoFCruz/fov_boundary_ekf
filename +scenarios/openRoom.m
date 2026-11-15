@@ -16,7 +16,7 @@ function scenario = openRoom()
 % Start from the standard runner configuration, then enclose an open room.
 scenario = scenarios.movingPair();
 scenario.Name = "Open room (plan S1): transport and newly-explored beams";
-scenario.Time = struct('Start', 0, 'Stop', 8, 'Step', 0.05);
+scenario.Time = struct('Start', 0, 'Stop', 8, 'Step', 0.025);
 scenario.Observer.InitialPose = [0, 0, 0];
 scenario.Observer.Fov = fov.FovSpec(2, deg2rad(100));
 % Rotate in place for 0-4 s, then translate forward for 4-8 s.

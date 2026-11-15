@@ -132,7 +132,11 @@ are pure numerics with no FoV geometry, so they are tested on their own.
      `GradientBeamMultiples` (default {1, 2}) and each sign, it calls
      `boundaryAt` at the displaced pose (12 calls) and evaluates h. A
      least-squares fit gives ∂h/∂q, which equals eq. 12's weighted central
-     differences.
+     differences. With `GradientDirections = "axes+diagonals"` it also
+     samples every pair of axes at once ((x, y), (x, ψ), (y, ψ), all sign
+     combinations; 36 calls), so moves that only help in combination, such
+     as translating and rotating together, register in the fitted gradient.
+     Default `"axes+diagonals"`; `"axes"` is eq. 12 as written.
    - Leader: it displaces the leader by ±ℓ steps in x and y against the
      fixed current polygon (8 evaluations, no new boundary), giving ∂h/∂y.
    - Samples whose polygon is invalid geometry are dropped. If too few
@@ -142,7 +146,7 @@ are pure numerics with no FoV geometry, so they are tested on their own.
 5. **QP (`control.solveCbfQp`, direct `quadprog`):** minimize
    `(u − u_nom)ᵀW(u − u_nom) + (u − u_prev)ᵀR(u − u_prev) + λδ²` subject to
    `coefficient·u + δ ≥ −γh − drift`, input bounds and `δ ≥ 0`. The rate term
-   (`InputRatePenalty` R, default 2W = diag(2, 2, 0.5)) damps input changes
+   (`InputRatePenalty` R, default 6W = diag(6, 6, 1.5), tuned at dt = 0.025 s) damps input changes
    between steps; `u_prev` is the previous applied input, kept in the policy
    state. It also handles the zero-authority and QP-failure
    fallbacks.
@@ -243,14 +247,65 @@ future EKF's `Predict` step; `transportBoundary` and
 
 | Source (§1.5) | `BoundaryPredictor` | `Estimator` | Exists? |
 |---|---|---|---|
-| (i) Oracle | `fov.visibleBoundaryAt` wrapper | any (unused for geometry) | Yes |
+| (i) Oracle | `fov.visibleBoundaryAt` wrapper | pass-through (unused for geometry) | Yes |
 | (ii) Latest reading | `estimation.predictBoundaryByTransport` | pass-through | Yes |
-| (iii) EKF | `estimation.predictBoundaryByTransport` | EKF | No |
-| (iv) EKF, η = 0 | same, with η = 0 | EKF with η = 0 | No |
+| (iii) EKF | `estimation.predictBoundaryByTransport` | `estimation.makeBoundaryEkf` | Yes |
+| (iv) EKF, η = 0 | same, with η = 0 | `estimation.makeBoundaryEkf`, η = 0 | Yes |
+
+All four are built consistently by `scenarios.withGradientSource(scenario,
+source, params)` (`source` one of `"oracle"`, `"latest"`, `"filter"`,
+`"filter-conservative"`), which sets both `scenario.Estimator` and a fresh
+`control.makeSignedDistanceCbfPolicy` with only `BoundaryPredictor` set (every
+other policy setting, including the rate penalty, stays default).
+`"filter-conservative"` forces `params.FreeSpaceFraction = 0` in both the
+filter and the predictor closure.
 
 The transport inside `predictBoundaryByTransport` is the prediction model of
-§1.2. The EKF's `Predict` will use the same transport with the real motion;
-the policy calls the predictor with hypothetical displacements.
+§1.2. The EKF's `Predict` uses the same transport with the real motion; the
+policy calls the predictor with hypothetical displacements.
+
+### The boundary EKF (`estimation.makeBoundaryEkf`)
+
+`estimator = estimation.makeBoundaryEkf(params)` implements the methodology's
+filter (§1.3), with `params` = `estimation.defaultTransportParams()`'s fields
+plus `MeasurementNoiseStd` (the sensor's `RangeNoiseStd`; floored at 1 mm
+inside the filter only, `sigma = max(params.MeasurementNoiseStd, 1e-3)`) and
+an optional `GateConfidence` (default 0.99; the chi-squared(1) threshold is
+`(sqrt(2)*erfinv(GateConfidence))^2`, no Statistics Toolbox dependency).
+
+- `Predict(state, motion, dt)` calls `estimation.transportBoundary` and
+  `estimation.transport.propagateCovariance` with the real
+  `motion.CurrentObserverPose` (the same core source (ii) uses with
+  hypothetical poses), and holds the result (`mu_bar`, `Sigma_bar`, labels,
+  `HasReturn`, `IsSupported`) as a pending prediction until the next
+  `Correct`. It also logs `StepRatio = (‖Δp‖/ρ_min + |Δψ|)/Δθ` (plan §4.8);
+  the compact scenarios' `dt = 0.025` keeps this well under 1 without
+  substepping (checked, not substepped, per the dated note below).
+- `Correct(state, scan)` is the first scan (`Mean = scan.Ranges`,
+  `Covariance = sigma^2 * I`) or, afterwards, the linear correction on the
+  pending prediction: per measured beam, gate the normalised innovation
+  `(z_i - mu_bar_i)^2/(Sigma_bar_ii + sigma^2)`; a beam that fails is
+  re-initialised (mean `z_i`, variance `sigma^2`, zero cross-covariance) and
+  excluded from the joint update that follows; the remaining beams get one
+  Joseph-form Kalman update (`H` selects them; all beams in every scenario
+  here). The mean is clamped to `[0, MaxRange]`.
+- The belief has the usual checkpoint-one fields (`Method = "boundary-ekf"`)
+  plus `Labels` (the previous `Predict`'s per-beam label), `Innovation`,
+  `NIS`, `Gated`, `FirstMeasurementNIS` (the eta-calibration check of §1.3,
+  on disoccluded/new beams' first measurement) and `StepRatio`.
+  `simulation.runScenario`'s `validateBelief` only requires the checkpoint-one
+  fields, so these extra ones pass through untouched.
+
+`metrics.filterConsistency(results)` (one result or several, seeds pooled)
+reports, over samples `k >= 2`, per-beam RMSE/NEES/NIS and gate-failure rate
+against `RawCasts{k}.Distances`, grouped by `Labels` and overall, plus the
+mean first-measurement NIS and the `StepRatio` max/exceed-fraction;
+`metrics.printFilterConsistency` prints it and
+`scripts/checkFilterConsistency.m` runs it over several seeds on `openRoom`
+and a scripted `boxInFrontOfWall` slide. It only measures consistency
+(NEES/NIS near the chi-squared(1) mean of 1); see the dated note in
+`docs/IMPLEMENTATION_PLAN.md` for the measured numbers, not acted on here.
+
 `control.compareGradients(result, predictor, referencePredictor,
 policyConfig)` re-evaluates two predictors (typically source (ii) and the
 oracle built from `result.Config`) against every logged belief and pose of
@@ -268,7 +323,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | obstacle | `fov.polygonObstacle` | `Name`, `Vertices` (convex, ordered) |
 | scan | `sensing.raycastScan` | `Time`, `ObserverPose`, `Angles` (relative to heading), `Ranges` (noisy), `HasReturn`, `IsValid`, `MaxRange`, `OpeningAngle` |
 | rawCast | `fov.castRays` | noiseless `Distances`, `EndPoints`, `HitObstacleId`, `IsDepthJump`, `VisibleBoundary` |
-| belief | `Estimator.Correct` | `Time`, `Angles`, `Mean`, `Covariance`, `IsSupported`, `HasReturn`, `ObserverPose`, `MaxRange`, `OpeningAngle`, `Method` |
+| belief | `Estimator.Correct` | `Time`, `Angles`, `Mean`, `Covariance`, `IsSupported`, `HasReturn`, `ObserverPose`, `MaxRange`, `OpeningAngle`, `Method`; the boundary EKF adds `Labels`, `Innovation`, `NIS`, `Gated`, `FirstMeasurementNIS`, `StepRatio` |
 | motion | runner | `PreviousObserverPose`, `CurrentObserverPose`, `AppliedInput` |
 | observation | runner | `Time`, `Belief`, `ObserverPose`, `LeaderPose`, `LeaderReference`, `BasePosition` |
 | result | `runScenario` | `Config`, `Time`, `ObserverPose`, `LeaderPose`, `ObserverInput`, `LeaderInput`, `Scans`, `Beliefs`, `RawCasts`, `PolicyDiagnostics`, `Metrics` |
@@ -297,12 +352,13 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | File | Role |
 |---|---|
 | `startup.m` | Adds the repo root, `tests/` and `scripts/` to the MATLAB path. Run first. |
+| `scripts/runBoxInFrontOfWall.m` | `boxInFrontOfWall` with a settings block: gradient source (oracle / latest / filter / filter-conservative), range noise, seed, gradient directions, prediction-model params; summary, diagnostics, replay. |
+| `scripts/runClutteredField.m` | The same settings block for `clutteredField`. |
 | `scripts/runMovingPair.m` | Moving-pair scenario with an oracle-predictor CBF, noise 0.1; summary and replay. |
-| `scripts/runBoxInFrontOfWall.m` | Box occlusion scenario (oracle CBF); summary, diagnostics, replay. |
-| `scripts/runClutteredField.m` | Cluttered-field scenario (oracle CBF); summary, diagnostics, replay. |
 | `scripts/plotControlDiagnostics.m` | Plots CBF diagnostics for a `result` already in the workspace. |
 | `scripts/checkTransport.m` | Plots `estimation.transportBoundary` against truth in `scenarios.openRoom` (rotation, translation) and `scenarios.boxInFrontOfWall` (sideways slide: edges, overlap, disocclusion). |
 | `scripts/compareGradientSources.m` | Runs `boxInFrontOfWall` with the oracle and with source (ii); reports and plots (`viz.plotGradientComparison`) the plan §8.2 measures via `control.compareGradients`. |
+| `scripts/checkFilterConsistency.m` | Runs the boundary EKF over several seeds on `openRoom` and a scripted `boxInFrontOfWall` slide; prints `metrics.filterConsistency`'s per-label table. |
 
 ### `+scenarios`: experiment definitions (return a scenario struct, run nothing)
 
@@ -314,6 +370,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `clutteredField.m` | Compact layout with 7 small posts; the leader visits waypoints over 32 s; oracle CBF. |
 | `openRoom.m` | Plan scenario S1: an enclosed room with no depth jumps; tests transport and newly-explored beams. |
 | `template.m` | Every configurable field written out with units; copy it to make new scenarios. |
+| `withGradientSource.m` | Sets `Estimator` and rebuilds the CBF policy consistently for one of the four gradient sources (`"oracle"`, `"latest"`, `"filter"`, `"filter-conservative"`); optional policy settings (e.g. `GradientDirections`) apply to every source alike. |
 
 ### `+simulation`: the runner
 
@@ -352,12 +409,15 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `signedEuclideanDistance.m` | Signed distance from points to a polygon: negative inside, positive outside, zero on the edge. Invalid polygons raise errors. Used for h. |
 | `+internal/normalizeBoundary.m` | Closes and validates a polygon (degenerate or self-intersecting → error); all nonadjacent edge pairs are tested in one vectorized pass. |
 | `+internal/pointToSegments.m` | Closest point and distance to a set of segments. |
+| `filterConsistency.m` | Per-beam RMSE/NEES/NIS/gate-failure-rate report for one or several boundary-EKF results, by label and overall, plus first-measurement NIS and `StepRatio` stats. |
+| `printFilterConsistency.m` | Thin text printer for a `filterConsistency` report. |
 
 ### `+estimation`
 
 | File | Role |
 |---|---|
-| `makePassThroughEstimator.m` | `Initialize`/`Predict`/`Correct` handles; belief = latest scan, zero covariance, no-op predict. The EKF will be a sibling `make...Estimator`. |
+| `makePassThroughEstimator.m` | `Initialize`/`Predict`/`Correct` handles; belief = latest scan, zero covariance, no-op predict. |
+| `makeBoundaryEkf.m` | The boundary EKF (methodology §1.3): `Predict` transports with the real motion (`transportBoundary`/`propagateCovariance`); `Correct` gates, re-initialises or Joseph-updates each beam. Gradient sources (iii)/(iv). |
 | `transportBoundary.m` | Mean-only transport and resampling core (eqs. 1-2, 7-11): moves `belief.Mean` to a hypothetical pose and labels each new beam blend/overlap/edge/disoccluded/no-return/new; calls the `+transport` stages in order and records each beam's provenance (`FromIndex`, `FromWeight`). |
 | `+transport/relativeMotion.m` | Δp, Δψ from one pose to another, in the old sensor frame. |
 | `+transport/transportEndpoints.m` | Eq. 1: old endpoints into the new frame (ρ, φ), plus the eq. 4 range variance for the jump test. |
@@ -398,9 +458,10 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 |---|---|
 | `TestModels.m` | `FovSpec`, `Observer`, `polygonObstacle` construction and validation. |
 | `TestRayCasting.m` | Ray–segment intersection, `castRays`, depth jumps, step construction, `isPointVisible`. |
-| `TestMetrics.m` | Signed distance and invalid-geometry behaviour. |
-| `TestControl.m` | CBF policy: statuses, fallbacks, input mapping, oracle and source (ii) gradient signs and magnitudes, source (ii) closed-loop determinism. |
+| `TestMetrics.m` | Signed distance and invalid-geometry behaviour; a `metrics.filterConsistency` smoke test. |
+| `TestControl.m` | CBF policy: statuses, fallbacks, input mapping, oracle and source (ii) gradient signs and magnitudes, source (ii) closed-loop determinism; sources (iii)/(iv) closed-loop determinism and the conservative η = 0 behavioural check. |
 | `TestSimulation.m` | Runner contracts: causal order, sample counts, determinism, noise, replay and export, metrics, scenarios. |
 | `TestTransport.m` | `estimation.transportBoundary`'s stages: blend/overlap, edges, disocclusion (eq. 11), newly explored, zero-motion identity, hand-computed corners; `estimation.transport.propagateCovariance`'s Jacobian F (the permanent finite-difference check) and Q (eqs. 6, 11), including the long-run symmetry/PSD check. |
+| `TestFilter.m` | `estimation.makeBoundaryEkf`: first-scan initialization and the 1 mm noise floor, gating vs. fusion, Joseph-form symmetry/PSD over a long closed-loop run, a full `runScenario` pass with determinism, and the stage-1 static-observer scalar variance recursion. |
 
 Run with `run('startup.m'); runtests('tests')`.

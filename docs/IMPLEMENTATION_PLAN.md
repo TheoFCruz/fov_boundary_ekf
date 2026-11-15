@@ -17,6 +17,180 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-14 status note: gradient samples along combined directions; configurable scripts
+
+`control.barrierGradient` can also sample the observer along every pair of
+axes at once ((x, y), (x, ψ), (y, ψ), all sign combinations), so moves that
+only help in combination, such as translating and rotating together when
+either alone barely changes h, register in the least-squares gradient. The
+CBF policy's `GradientDirections` is now `"axes+diagonals"` by default
+(36 observer samples per step instead of 12); `"axes"` keeps eq. 12 as
+written. Measured on `boxInFrontOfWall`, noise 0.05 m, seed 1, 15 s,
+R = 6W, single seed:
+
+| Source | Directions | TrueVisible | Infeasible steps | Min h | Angle to oracle, median / 90th pct | Run time |
+|---|---|---|---|---|---|---|
+| (i) oracle | axes → axes+diagonals | 1.000 → 1.000 | 0 → 0 | −0.034 → −0.010 | — | 16 → 30 s |
+| (ii) latest | axes → axes+diagonals | 1.000 → 1.000 | 3 → 1 | −0.029 → −0.032 | 21° / 140° → 11° / 140° | 20 → 39 s |
+| (iii) filter | axes → axes+diagonals | 1.000 → 1.000 | 3 → 1 | −0.029 → −0.031 | 22° / 147° → 11° / 26° | 18 → 41 s |
+| (iv) conservative | axes → axes+diagonals | 1.000 → 1.000 | 54 → 7 | −0.046 → −0.030 | 37° / 151° → 24° / 168° | 19 → 36 s |
+
+The angles are computed with the same directions on both sides. Visually
+the diagonals also smooth the motion enough that the rate penalty matters
+less; R = 6W is kept. `boxInFrontOfWall` now runs 15 s. The per-scenario
+scripts `runBoxInFrontOfWall.m` and `runClutteredField.m` start with a
+settings block (source, noise, seed, run length, W, rate factor, γ, margin,
+gradient directions and multiples, η, replay speed) and replace the
+separate source-(iii)/(iv) scripts. `scenarios.withGradientSource` takes
+optional policy settings that apply to every source alike. Full suite
+121/121 (about 6 minutes headless; the closed-loop tests sample 3× more).
+
+## 0. 2026-11-14 status note: gradient sources (iii)/(iv) closed loop (E3)
+
+Added `scenarios.withGradientSource(scenario, source, params)`, which sets
+both `scenario.Estimator` and a fresh `control.makeSignedDistanceCbfPolicy`
+(only `BoundaryPredictor` set; every other policy setting, including the
+rate penalty, stays default) consistently for one of the four sources:
+`"oracle"` (i), `"latest"` (ii), `"filter"` (iii, the boundary EKF, η = 0.5),
+`"filter-conservative"` (iv, the same with `FreeSpaceFraction = 0` forced in
+**both** the filter and the predictor closure). Scripts
+for (iii) and (iv) were later folded into the configurable
+`scripts/runBoxInFrontOfWall.m` (see the gradient-directions note).
+`tests/TestControl.m` checks closed-loop determinism for both and a direct
+behavioural check that `"filter-conservative"` uses η = 0 in the estimator's
+own `Predict` and in the predictor's `transportBoundary` call (a known
+disocclusion gives the conservative seen-free-limit mean, strictly below the
+η = 0.5 case, in both places).
+
+Measured (not tuned) on `boxInFrontOfWall`, `RangeNoiseStd = 0.01`,
+`Sensor.Seed = 1`, oracle-boundary CBF-QP closed loop, 480 steps:
+
+| Source | Run time (s) | TrueVisible | Status counts | Infeasible steps (`relaxed-with-slack`) | min h |
+|---|---|---|---|---|---|
+| (i) oracle | 11.1 | 1.000 | cbf-corrected=343, nominal-feasible=137 | 0 | -0.0304 |
+| (ii) latest | 13.1 | 1.000 | cbf-corrected=206, nominal-feasible=271, relaxed-with-slack=3 | 3 | -0.0260 |
+| (iii) filter | 14.6 | 1.000 | cbf-corrected=213, nominal-feasible=266, relaxed-with-slack=1 | 1 | -0.0257 |
+| (iv) filter-conservative | 15.1 | 1.000 | cbf-corrected=167, nominal-feasible=280, relaxed-with-slack=33 | 33 | -0.0411 |
+
+"Infeasible steps" are steps where no bounded input meets the CBF
+constraint. The numeric slack is positive on many more steps, but that is
+the soft O(1/λ) slack of decision C3, not infeasibility. "min h" is the
+minimum `BarrierValue` (the policy's own estimated barrier).
+`control.compareGradients` against
+the oracle built from each run's own config (offline, decision D7):
+
+| Source | Median angle to oracle (deg) | 90th pct (deg) |
+|---|---|---|
+| (iii) filter | 19.8 | 147.1 |
+| (iv) filter-conservative | 35.3 | 107.5 |
+
+All four sources kept the leader fully visible (`TrueVisible` = 1.000) on
+this run. Source (iv) (η = 0) needs slack far more often (33 steps vs 0-3)
+and agrees with the oracle less in the median (35° vs 20°). That is
+consistent with the conservative hypothesis predicting no free space behind
+the box, so moving sideways seems to help less. The wide 90th percentiles
+were not re-examined here; for source (ii) they were traced to the leader at
+the box corner near the sector edge (methodology notes D5). Single seed;
+not a multi-seed comparison. Full suite
+117/117 before this change; see the AGENTS.md verification sentence for the
+count after.
+
+## 0. 2026-11-14 status note: boundary EKF and consistency (E1, E2)
+
+Implemented `estimation.makeBoundaryEkf(params)` (methodology §1.3): `Predict`
+reuses `estimation.transportBoundary` / `estimation.transport.
+propagateCovariance` with the real observer motion (the same core as
+gradient source (ii)); `Correct` gates each measured beam's normalised
+innovation `(z_i - mu_bar_i)^2/(Sigma_bar_ii + sigma_r^2)` against the
+chi-squared(1) threshold at confidence 0.99 (6.6349, via
+`(sqrt(2)*erfinv(p))^2`, no Statistics Toolbox), re-initialises a gated beam
+(mean `z_i`, variance `sigma_r^2`, zero cross-covariance) ahead of a joint
+Joseph-form update on the rest, and clamps the mean to `[0, MaxRange]`.
+`sigma_r = max(RangeNoiseStd, 1e-3)` (a 1 mm floor, inside the filter only);
+no-return beams use the same `z = MaxRange`, `sigma_r^2` pseudo-measurement
+as returns. `tests/TestFilter.m` (new) checks first-scan initialization and
+the noise floor, gating vs. fusion, Joseph-form symmetry/PSD over a long
+closed-loop run, a full `runScenario` pass with determinism, and the plan's
+stage-1 static-observer scalar variance recursion to 1e-12 relative. Full
+suite 116/116.
+
+Added `metrics.filterConsistency` (plan §8.1): per-beam RMSE, mean NEES,
+mean NIS and gate-failure rate, grouped by `belief.Labels` and overall, over
+samples `k >= 2` of one result or several (seeds pooled), scored against
+`RawCasts{k}.Distances`; plus the first-measurement NIS on disoccluded/new
+beams (the eta-calibration check) and the `StepRatio` max/exceed-fraction.
+`scripts/checkFilterConsistency.m` runs it over 10 seeds for `openRoom`
+(its own scripted rotate-then-translate reference, `RangeNoiseStd` 0.01 and
+0.02) and `boxInFrontOfWall` with a scripted sideways-slide reference
+(`RangeNoiseStd` 0.01, no controller, so disocclusions happen on a fixed
+schedule). Measured (10 seeds each; **not tuned**, Q tuning is a later
+step):
+
+| Case | Label | Count | RMSE (m) | Mean NEES | Mean NIS | Gate rate |
+|---|---|---|---|---|---|---|
+| openRoom, 0.01 | blend | 238360 | 0.0064 | 0.693 | 0.541 | 0.00043 |
+| openRoom, 0.01 | edge | 5240 | 0.0063 | 0.532 | 0.817 | 0 |
+| openRoom, 0.01 | no-return | 14000 | 0.0002 | 0.0008 | 0.0010 | 0 |
+| openRoom, 0.01 | new | 1600 | 0.0104 | 1.084 | 0.0006 | 0 |
+| openRoom, 0.01 | **overall** | 259200 | 0.0063 | 0.655 | 0.514 | 0.00043 |
+| openRoom, 0.02 | blend | 238360 | 0.0095 | 0.579 | 0.771 | 0.00357 |
+| openRoom, 0.02 | edge | 5240 | 0.0120 | 0.690 | 0.581 | 0.00019 |
+| openRoom, 0.02 | no-return | 14000 | 0.0001 | 0.0003 | 0.0014 | 0 |
+| openRoom, 0.02 | new | 1600 | 0.0208 | 1.083 | 0.0024 | 0 |
+| openRoom, 0.02 | **overall** | 259200 | 0.0094 | 0.554 | 0.721 | 0.00329 |
+| box slide, 0.01 | blend | 176640 | 0.0066 | 0.711 | 0.552 | 0.00046 |
+| box slide, 0.01 | edge | 17070 | 0.0080 | 0.672 | 1.178 | 0 |
+| box slide, 0.01 | no-return | 190290 | 0 | 0 | 0 | 0 |
+| box slide, 0.01 | new | 4800 | 0 | 0 | 0 | 0 |
+| box slide, 0.01 | **overall** | 388800 | 0.0047 | 0.353 | 0.302 | 0.00022 |
+
+First-measurement (eta-calibration) NIS: 0.001 / 0.002 / 0.000 for the three
+cases (not 1, but the sample is almost entirely `openRoom`'s "new" beams at
+the FoV's side edges, not disocclusions behind an occluder; `boxInFrontOfWall`
+never reaches a first disocclusion measurement in this 10-seed slide).
+`StepRatio` stayed well under the plan's ~1 substep threshold in every case
+(max 0.229 / 0.229 / 0.119, 0% of steps > 1).
+
+Reading the numbers (not acted on; Q tuning is later, stage 6): `blend` and
+`edge` are mildly **under-confident** (NEES, NIS below 1: the filter's own Q
+is a bit larger than the actual error), consistent with the low gate-failure
+rates (noticeably below the 1% nominal false-alarm rate at 0.99 confidence).
+`new` beams are close to the NEES target (1.08/1.08) but their NIS is far
+below 1 (~0.0006-0.0024): the *prior* variance is well calibrated against
+truth, but on these scenarios the measurement noise so dominates the much
+larger `new`-beam variance that the innovation covariance over-estimates the
+actual spread — i.e. `new` beams are measured essentially immediately and
+rarely disagree with their large prior. `no-return` beams are **exactly or
+near-exactly** zero RMSE/NEES/NIS: a no-return prediction is always exactly
+`MaxRange` (zero `F` row) and the measurement is always exactly `MaxRange`
+too (no noise is added to censored returns, `sensing.raycastScan`), so the
+innovation is deterministically zero — the `sigma_r^2` pseudo-measurement
+variance is far larger than warranted for this beam type, a candidate for a
+smaller or zero variance if revisited later (decision: kept as specified for
+E1/E2; not changed here).
+
+## 0. 2026-11-14 status note: smaller time step instead of substepping
+
+The transport linearization assumes per-step motion below about one beam
+(‖Δp‖/ρ + |Δψ| ≲ Δθ, plan §4.8). Instead of substepping, the compact
+scenarios (`boxInFrontOfWall`, `clutteredField`, `openRoom`, `template`)
+now use `Time.Step = 0.025` s, which divides every stop time and reference
+breakpoint (0.03 does not). Measured ratio (‖Δp‖/ρ_min + |Δψ|)/Δθ per step:
+
+| Scenario / source | dt | median / 90th pct / max | steps > 1 |
+|---|---|---|---|
+| box, oracle | 0.05 → 0.025 | 0.31 / 0.86 / 1.59 → 0.14 / 0.41 / 0.68 | 5.4% → 0% |
+| box, source (ii) | 0.05 → 0.025 | 0.23 / 1.01 / 2.71 → 0.15 / 0.52 / 1.28 | 10.8% → 0.6% |
+| cluttered | 0.05 → 0.025 | max 0.50 → 0.25 | 0% → 0% |
+
+Run times are about 10-16 s (box) and 30 s (cluttered). The rate penalty
+acts per step, so it was retuned to keep the same smoothing per second:
+R = 6W = diag(6, 6, 1.5) at dt = 0.025 matches 2W at dt = 0.05 (input change
+per second: oracle 1.03 vs 1.13, source (ii) 1.38 vs 1.47); 4W was rougher.
+Visibility stays 1.000. `movingPair` and `controlTest` keep 0.05 s. Full
+suite 110/110. The future EKF will log the per-step ratio rather than
+substep.
+
 ## 0. 2026-11-14 status note: transport covariance propagation (P6)
 
 Implemented `estimation.transport.propagateCovariance(belief, prediction,

@@ -5,11 +5,14 @@ profile `B_t(theta)` from simulated range scans. The target is the current
 boundary belief, its support, and its uncertainty—not observer or leader pose
 estimation, occupancy, or a persistent map.
 
-The current pre-EKF foundation provides a deterministic moving-observer/moving-
-leader simulation, ray-cast sensing with optional seeded range noise, a
-pass-through boundary estimator, a belief-only CBF-QP baseline, and offline
-replay. The EKF, segmentation, motion transport, covariance propagation, and
-support/reset/forgetting policies are not implemented yet.
+The foundation provides a deterministic moving-observer/moving-leader
+simulation, ray-cast sensing with optional seeded range noise, a pass-through
+boundary estimator, motion transport and covariance propagation, a boundary
+EKF (`estimation.makeBoundaryEkf`), a belief-only CBF-QP baseline, and offline
+replay. All four gradient sources of the methodology (oracle, latest reading,
+filter, filter with the conservative free-space hypothesis) are implemented
+(`scenarios.withGradientSource`); sparse rays and history-assisted
+reconstruction (the roadmap's stage 3) are not.
 
 ## Quick start
 
@@ -78,9 +81,45 @@ provenance (`FromIndex`, `FromWeight`). `scenarios.openRoom()` (plan
 scenario S1) and `scenarios.boxInFrontOfWall()` (edges, overlap, disocclusion)
 exercise it; see `scripts/checkTransport.m` and `viz.plotTransportCheck`.
 `estimation.transport.propagateCovariance(belief, prediction, params)` uses
-that provenance to build `Sigma_bar = F*Sigma*F' + Q` (eqs. 3-6, 11); only
-the future EKF's `Predict` step calls it, so `transportBoundary` and
+that provenance to build `Sigma_bar = F*Sigma*F' + Q` (eqs. 3-6, 11); only the
+EKF's `Predict` step calls it, so `transportBoundary` and
 `predictBoundaryByTransport` stay mean-only.
+
+### The boundary EKF and gradient sources (iii)/(iv)
+
+`estimation.makeBoundaryEkf(params)` (methodology §1.3) is the full filter:
+`Predict` transports the belief with the real observer motion (the same
+`transportBoundary`/`propagateCovariance` core as source (ii)); `Correct`
+gates each measured beam's normalised innovation against the chi-squared(1)
+threshold (default confidence 0.99), re-initialises a beam that fails the
+gate from its measurement instead of fusing it, and runs a joint Joseph-form
+Kalman update on the rest. `params` takes every
+`estimation.defaultTransportParams()` field plus `MeasurementNoiseStd` (the
+sensor's `RangeNoiseStd`; floored at 1 mm inside the filter) and an optional
+`GateConfidence`. `metrics.filterConsistency(results)` reports NEES, NIS,
+RMSE and gate-failure rate per beam label (`scripts/checkFilterConsistency.m`);
+see the dated note in `docs/IMPLEMENTATION_PLAN.md` for measured numbers
+(not tuned).
+
+The easiest way to run gradient sources (iii) (the filter, eta = 0.5) and
+(iv) (the filter, eta = 0, the conservative ablation) is
+`scenarios.withGradientSource`:
+
+```matlab
+scenario = scenarios.boxInFrontOfWall();
+scenario.Sensor.RangeNoiseStd = 0.01;
+scenario.Sensor.Seed = 1;
+scenario = scenarios.withGradientSource(scenario, "filter"); % or "filter-conservative"
+result = simulation.runScenario(scenario);
+```
+
+which sets both `scenario.Estimator` and the CBF policy's
+`BoundaryPredictor` consistently (and, for `"filter-conservative"`, forces
+`FreeSpaceFraction = 0` in both places); `"oracle"` and `"latest"` select
+sources (i) and (ii) the same way. `scripts/runBoxInFrontOfWall.m` and
+`scripts/runClutteredField.m` each start with a settings block (source, range
+noise, seed, gradient directions, prediction-model params) and then run,
+summarize and replay that scenario.
 
 ## Structure
 

@@ -16,7 +16,7 @@ function scenario = clutteredField()
 % Start from the standard runner configuration, then shrink the geometry.
 scenario = scenarios.movingPair();
 scenario.Name = "Leader weaves through a cluttered field";
-scenario.Time = struct('Start', 0, 'Stop', 32, 'Step', 0.05);
+scenario.Time = struct('Start', 0, 'Stop', 32, 'Step', 0.025);
 scenario.Observer.InitialPose = [0, 0, 0];
 scenario.Observer.Fov = fov.FovSpec(2, deg2rad(100));
 % A zero reference isolates the CBF-QP correction as the only observer motion.

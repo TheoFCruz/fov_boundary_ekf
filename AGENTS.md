@@ -35,15 +35,26 @@ No one document replaces the others. If a change affects a contract,
 architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
-verification honestly. The full suite (`runtests('tests')`) passed 110/110 on
-2026-11-14, after `estimation.transport.propagateCovariance` (the eqs. 3-6,
+verification honestly. The full suite (`runtests('tests')`) passed 121/121 on
+2026-11-14, after the CBF gradient's default became `"axes+diagonals"`
+(combined-direction samples) and the per-scenario scripts gained settings
+blocks; earlier 119/119 the same day, after adding the boundary EKF (`estimation.makeBoundaryEkf`,
+methodology §1.3: correction, gating, Joseph update; `tests/TestFilter.m`),
+`metrics.filterConsistency` (NEES/NIS/RMSE/gate rate per beam label,
+`tests/TestMetrics.m`), and `scenarios.withGradientSource` with gradient
+sources (iii)/(iv) closed loop (`tests/TestControl.m`); see
+`docs/IMPLEMENTATION_PLAN.md`'s 2026-11-14 "boundary EKF and consistency
+(E1, E2)" and "gradient sources (iii)/(iv) closed loop (E3)" status notes
+for measured results. Earlier 110/110 the same day, after
+`estimation.transport.propagateCovariance` (the eqs. 3-6,
 11 covariance propagation, `Sigma_bar = F*Sigma*F' + Q`, built from
 per-beam provenance `estimation.transportBoundary`'s stages now record;
 called only by the future EKF's `Predict`; see `docs/
 IMPLEMENTATION_PLAN.md`'s 2026-11-14 "transport covariance propagation
 (P6)" status note for measured results); earlier 101/101 the same day,
 after the input-rate penalty became the CBF-QP default
-(`InputRatePenalty` = 2W) and `viz.animateComparison` was added; earlier
+(`InputRatePenalty`, now 6W at the compact scenarios' dt = 0.025 s) and
+`viz.animateComparison` was added; earlier
 98/98 the same day, after checkpoint 2 of the boundary-transport prediction model
 (edges, disocclusion, and the transport predictor, gradient source (ii):
 `estimation.transport.edgeAndShadowCandidates`,
@@ -87,7 +98,7 @@ command, so a nonzero nominal does not cause stop-go motion.
   +transport/  Stages of the boundary transport (prediction model)
 +simulation/   Scenario validation, schedules, kinematics, causal runner/logs
 +control/      Observer-policy callbacks/seam
-+metrics/      Sampled-polygon distance computation
++metrics/      Sampled-polygon distance computation, boundary-EKF consistency (NEES/NIS)
 +viz/          Summary, replay, diagnostics, and static frame export
 +scenarios/    Reusable dynamic scenario factories
 scripts/       Thin experiment/demo entry points
