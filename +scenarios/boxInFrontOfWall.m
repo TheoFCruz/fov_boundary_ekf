@@ -11,7 +11,7 @@ function scenario = boxInFrontOfWall()
 % Start from the standard runner configuration, then exercise real occlusion.
 scenario = scenarios.movingPair();
 scenario.Name = "Leader passes behind a box in front of a wall";
-scenario.Time = struct('Start', 0, 'Stop', 12, 'Step', 0.025);
+scenario.Time = struct('Start', 0, 'Stop', 15, 'Step', 0.025);
 scenario.Observer.InitialPose = [0, 0, 0];
 scenario.Observer.Fov = fov.FovSpec(2, deg2rad(100));
 % A zero reference isolates the CBF-QP correction as the only observer motion.

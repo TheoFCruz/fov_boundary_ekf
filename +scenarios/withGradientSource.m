@@ -1,12 +1,12 @@
-function scenario = withGradientSource(scenario, source, params)
+function scenario = withGradientSource(scenario, source, params, policyConfig)
 %WITHGRADIENTSOURCE Set the estimator and CBF predictor for one gradient source.
 %
-%   scenario = scenarios.withGradientSource(scenario, source, params)
+%   scenario = scenarios.withGradientSource(scenario, source, params, policyConfig)
 %
 % Sets scenario.Estimator and rebuilds scenario.Observer.Policy (a fresh
-% control.makeSignedDistanceCbfPolicy with only BoundaryPredictor set, so
-% every other policy setting, including the rate penalty, stays at its
-% default) consistently for one of the methodology's four gradient sources
+% control.makeSignedDistanceCbfPolicy with BoundaryPredictor set and any
+% policyConfig overrides; everything else, including the rate penalty,
+% at its default) consistently for one of the methodology's four gradient sources
 % (sec. 1.5):
 %
 %   "oracle"               (i)  pass-through estimator; the oracle predictor
@@ -23,10 +23,16 @@ function scenario = withGradientSource(scenario, source, params)
 %                                forced to 0 in both the filter and the
 %                                predictor (the conservative seen-free limit).
 %
-% params defaults to estimation.defaultTransportParams().
+% params defaults to estimation.defaultTransportParams(). policyConfig
+% (optional struct) overrides CBF policy settings other than the predictor,
+% e.g. struct('GradientDirections', "axes+diagonals"); the same settings
+% apply whatever the source, so sources stay comparable.
 
 if nargin < 3 || isempty(params)
     params = estimation.defaultTransportParams();
+end
+if nargin < 4 || isempty(policyConfig)
+    policyConfig = struct();
 end
 validSources = ["oracle", "latest", "filter", "filter-conservative"];
 source = string(source);
@@ -53,6 +59,6 @@ switch source
         scenario.Estimator = estimation.makeBoundaryEkf(filterParams);
 end
 
-scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy( ...
-    struct('BoundaryPredictor', predictor));
+policyConfig.BoundaryPredictor = predictor;
+scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy(policyConfig);
 end

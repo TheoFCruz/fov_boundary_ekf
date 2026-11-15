@@ -116,9 +116,10 @@ result = simulation.runScenario(scenario);
 which sets both `scenario.Estimator` and the CBF policy's
 `BoundaryPredictor` consistently (and, for `"filter-conservative"`, forces
 `FreeSpaceFraction = 0` in both places); `"oracle"` and `"latest"` select
-sources (i) and (ii) the same way. `scripts/runBoxInFrontOfWallFilter.m` and
-`scripts/runBoxInFrontOfWallConservative.m` run, summarize and replay sources
-(iii) and (iv) on `boxInFrontOfWall`.
+sources (i) and (ii) the same way. `scripts/runBoxInFrontOfWall.m` and
+`scripts/runClutteredField.m` each start with a settings block (source, range
+noise, seed, gradient directions, prediction-model params) and then run,
+summarize and replay that scenario.
 
 ## Structure
 

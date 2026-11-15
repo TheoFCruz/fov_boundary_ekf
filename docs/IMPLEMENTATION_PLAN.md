@@ -17,6 +17,34 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-14 status note: gradient samples along combined directions; configurable scripts
+
+`control.barrierGradient` can also sample the observer along every pair of
+axes at once ((x, y), (x, ψ), (y, ψ), all sign combinations), so moves that
+only help in combination, such as translating and rotating together when
+either alone barely changes h, register in the least-squares gradient. The
+CBF policy's `GradientDirections` is now `"axes+diagonals"` by default
+(36 observer samples per step instead of 12); `"axes"` keeps eq. 12 as
+written. Measured on `boxInFrontOfWall`, noise 0.05 m, seed 1, 15 s,
+R = 6W, single seed:
+
+| Source | Directions | TrueVisible | Infeasible steps | Min h | Angle to oracle, median / 90th pct | Run time |
+|---|---|---|---|---|---|---|
+| (i) oracle | axes → axes+diagonals | 1.000 → 1.000 | 0 → 0 | −0.034 → −0.010 | — | 16 → 30 s |
+| (ii) latest | axes → axes+diagonals | 1.000 → 1.000 | 3 → 1 | −0.029 → −0.032 | 21° / 140° → 11° / 140° | 20 → 39 s |
+| (iii) filter | axes → axes+diagonals | 1.000 → 1.000 | 3 → 1 | −0.029 → −0.031 | 22° / 147° → 11° / 26° | 18 → 41 s |
+| (iv) conservative | axes → axes+diagonals | 1.000 → 1.000 | 54 → 7 | −0.046 → −0.030 | 37° / 151° → 24° / 168° | 19 → 36 s |
+
+The angles are computed with the same directions on both sides. Visually
+the diagonals also smooth the motion enough that the rate penalty matters
+less; R = 6W is kept. `boxInFrontOfWall` now runs 15 s. The per-scenario
+scripts `runBoxInFrontOfWall.m` and `runClutteredField.m` start with a
+settings block (source, noise, seed, run length, W, rate factor, γ, margin,
+gradient directions and multiples, η, replay speed) and replace the
+separate source-(iii)/(iv) scripts. `scenarios.withGradientSource` takes
+optional policy settings that apply to every source alike. Full suite
+121/121 (about 6 minutes headless; the closed-loop tests sample 3× more).
+
 ## 0. 2026-11-14 status note: gradient sources (iii)/(iv) closed loop (E3)
 
 Added `scenarios.withGradientSource(scenario, source, params)`, which sets
@@ -25,9 +53,9 @@ both `scenario.Estimator` and a fresh `control.makeSignedDistanceCbfPolicy`
 rate penalty, stays default) consistently for one of the four sources:
 `"oracle"` (i), `"latest"` (ii), `"filter"` (iii, the boundary EKF, η = 0.5),
 `"filter-conservative"` (iv, the same with `FreeSpaceFraction = 0` forced in
-**both** the filter and the predictor closure). `scripts/
-runBoxInFrontOfWallFilter.m` and `scripts/runBoxInFrontOfWallConservative.m`
-run, summarize and replay (iii) and (iv) on `boxInFrontOfWall`.
+**both** the filter and the predictor closure). Scripts
+for (iii) and (iv) were later folded into the configurable
+`scripts/runBoxInFrontOfWall.m` (see the gradient-directions note).
 `tests/TestControl.m` checks closed-loop determinism for both and a direct
 behavioural check that `"filter-conservative"` uses η = 0 in the estimator's
 own `Predict` and in the predictor's `transportBoundary` call (a known

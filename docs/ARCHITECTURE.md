@@ -132,7 +132,11 @@ are pure numerics with no FoV geometry, so they are tested on their own.
      `GradientBeamMultiples` (default {1, 2}) and each sign, it calls
      `boundaryAt` at the displaced pose (12 calls) and evaluates h. A
      least-squares fit gives ∂h/∂q, which equals eq. 12's weighted central
-     differences.
+     differences. With `GradientDirections = "axes+diagonals"` it also
+     samples every pair of axes at once ((x, y), (x, ψ), (y, ψ), all sign
+     combinations; 36 calls), so moves that only help in combination, such
+     as translating and rotating together, register in the fitted gradient.
+     Default `"axes+diagonals"`; `"axes"` is eq. 12 as written.
    - Leader: it displaces the leader by ±ℓ steps in x and y against the
      fixed current polygon (8 evaluations, no new boundary), giving ∂h/∂y.
    - Samples whose polygon is invalid geometry are dropped. If too few
@@ -348,15 +352,13 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | File | Role |
 |---|---|
 | `startup.m` | Adds the repo root, `tests/` and `scripts/` to the MATLAB path. Run first. |
+| `scripts/runBoxInFrontOfWall.m` | `boxInFrontOfWall` with a settings block: gradient source (oracle / latest / filter / filter-conservative), range noise, seed, gradient directions, prediction-model params; summary, diagnostics, replay. |
+| `scripts/runClutteredField.m` | The same settings block for `clutteredField`. |
 | `scripts/runMovingPair.m` | Moving-pair scenario with an oracle-predictor CBF, noise 0.1; summary and replay. |
-| `scripts/runBoxInFrontOfWall.m` | Box occlusion scenario (oracle CBF); summary, diagnostics, replay. |
-| `scripts/runClutteredField.m` | Cluttered-field scenario (oracle CBF); summary, diagnostics, replay. |
 | `scripts/plotControlDiagnostics.m` | Plots CBF diagnostics for a `result` already in the workspace. |
 | `scripts/checkTransport.m` | Plots `estimation.transportBoundary` against truth in `scenarios.openRoom` (rotation, translation) and `scenarios.boxInFrontOfWall` (sideways slide: edges, overlap, disocclusion). |
 | `scripts/compareGradientSources.m` | Runs `boxInFrontOfWall` with the oracle and with source (ii); reports and plots (`viz.plotGradientComparison`) the plan §8.2 measures via `control.compareGradients`. |
 | `scripts/checkFilterConsistency.m` | Runs the boundary EKF over several seeds on `openRoom` and a scripted `boxInFrontOfWall` slide; prints `metrics.filterConsistency`'s per-label table. |
-| `scripts/runBoxInFrontOfWallFilter.m` | Gradient source (iii): `boxInFrontOfWall` via `scenarios.withGradientSource(scenario, "filter")`; summary, diagnostics, replay. |
-| `scripts/runBoxInFrontOfWallConservative.m` | Gradient source (iv): the same, with `"filter-conservative"` (η = 0). |
 
 ### `+scenarios`: experiment definitions (return a scenario struct, run nothing)
 
@@ -368,7 +370,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `clutteredField.m` | Compact layout with 7 small posts; the leader visits waypoints over 32 s; oracle CBF. |
 | `openRoom.m` | Plan scenario S1: an enclosed room with no depth jumps; tests transport and newly-explored beams. |
 | `template.m` | Every configurable field written out with units; copy it to make new scenarios. |
-| `withGradientSource.m` | Sets `Estimator` and rebuilds the CBF policy consistently for one of the four gradient sources (`"oracle"`, `"latest"`, `"filter"`, `"filter-conservative"`). |
+| `withGradientSource.m` | Sets `Estimator` and rebuilds the CBF policy consistently for one of the four gradient sources (`"oracle"`, `"latest"`, `"filter"`, `"filter-conservative"`); optional policy settings (e.g. `GradientDirections`) apply to every source alike. |
 
 ### `+simulation`: the runner
 

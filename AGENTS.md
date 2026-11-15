@@ -35,8 +35,10 @@ No one document replaces the others. If a change affects a contract,
 architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
-verification honestly. The full suite (`runtests('tests')`) passed 119/119 on
-2026-11-14, after adding the boundary EKF (`estimation.makeBoundaryEkf`,
+verification honestly. The full suite (`runtests('tests')`) passed 121/121 on
+2026-11-14, after the CBF gradient's default became `"axes+diagonals"`
+(combined-direction samples) and the per-scenario scripts gained settings
+blocks; earlier 119/119 the same day, after adding the boundary EKF (`estimation.makeBoundaryEkf`,
 methodology §1.3: correction, gating, Joseph update; `tests/TestFilter.m`),
 `metrics.filterConsistency` (NEES/NIS/RMSE/gate rate per beam label,
 `tests/TestMetrics.m`), and `scenarios.withGradientSource` with gradient

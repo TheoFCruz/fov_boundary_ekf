@@ -214,6 +214,45 @@ classdef TestControl < matlab.unittest.TestCase
             verifyEqual(testCase, quality, "usable");
         end
 
+        function diagonalSamplesRecoverLinearBarrierExactly(testCase)
+            pose = [1; 2; 0.3];
+            target = [4; 5];
+            poseGradient = [2, -3, 0.5];
+            barrierAtPose = @(q) 0.7 + poseGradient * (q - pose);
+            barrierAtTarget = @(y) 0.7 + [-1, 4] * (y - target);
+
+            [gPose, ~, sampleCount] = control.barrierGradient(barrierAtPose, ...
+                barrierAtTarget, pose, target, 0.7, 0.02, [1, 2], "axes+diagonals");
+
+            verifyEqual(testCase, gPose, poseGradient, 'AbsTol', 1e-9);
+            % 3 axes + 6 pair directions, 2 multiples, 2 signs.
+            verifyEqual(testCase, sampleCount, 36);
+        end
+
+        function diagonalSamplesSeeMovesThatOnlyHelpTogether(testCase)
+            % h rises only when x and psi both increase, as when translating
+            % and rotating together reveals the leader but either alone does
+            % not. Axis samples see nothing; diagonal samples see the combined
+            % move and give positive x and psi components.
+            pose = [0; 0; 0];
+            target = [1; 0];
+            barrierAtPose = @(q) max(0, min(q(1) / 0.02, q(3) / 0.02));
+            barrierAtTarget = @(y) 0;
+
+            gAxes = control.barrierGradient(barrierAtPose, barrierAtTarget, ...
+                pose, target, 0, 0.02, [1, 2], "axes");
+            gDiagonal = control.barrierGradient(barrierAtPose, barrierAtTarget, ...
+                pose, target, 0, 0.02, [1, 2], "axes+diagonals");
+
+            verifyEqual(testCase, gAxes, [0, 0, 0], 'AbsTol', 1e-12);
+            verifyGreaterThan(testCase, gDiagonal(1), 0);
+            verifyGreaterThan(testCase, gDiagonal(3), 0);
+            verifyEqual(testCase, gDiagonal(2), 0, 'AbsTol', 1e-12);
+            verifyError(testCase, @() control.makeSignedDistanceCbfPolicy(struct( ...
+                'BoundaryPredictor', @(b, p) [], 'GradientDirections', "random")), ...
+                'control:makeSignedDistanceCbfPolicy:InvalidConfig');
+        end
+
         function gradientIsUnusableWhenSamplesAreInvalid(testCase)
             invalid = @(q) NaN;
             valid = @(y) 0;
