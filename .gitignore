@@ -3,3 +3,6 @@
 
 # Generated replay key frames.
 /frames/
+
+# MATLAB editor autosaves.
+*.asv
