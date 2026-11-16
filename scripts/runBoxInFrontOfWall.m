@@ -9,13 +9,13 @@ run('startup.m');
 
 % --- Settings: source and sensor ---
 source = "filter";               % "oracle" | "latest" | "filter" | "filter-conservative"
-rangeNoiseStd = 0.05;            % range noise (m); the filter assumes the same
+rangeNoiseStd = 0.1;            % range noise (m); the filter assumes the same
 seed = 1;                        % noise seed
-stopTime = 15;                   % run length (s), a multiple of 0.025
+stopTime = 18;                   % run length (s), a multiple of 0.025
 
 % --- Settings: controller (CBF-QP) ---
 inputWeights = diag([1, 1, 0.25]);   % W: cost of deviating from the nominal input
-rateFactor = 0;                  % R = rateFactor * W: cost of changing the input per step
+rateFactor = 6;                  % R = rateFactor * W: cost of changing the input per step
 inputLower = [-0.5; -0.5; -1];   % body input bounds [vx; vy; omega] (m/s, m/s, rad/s);
 inputUpper = [0.5; 0.5; 1];      % each must allow zero (standing still)
 cbfRate = 4;                     % gamma in hdot + gamma*h >= -slack

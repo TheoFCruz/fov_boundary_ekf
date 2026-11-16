@@ -321,6 +321,9 @@ classdef TestSimulation < matlab.unittest.TestCase
         function comparisonReplayUpdatesEveryPanelInSync(testCase)
             scenario = scenarios.boxInFrontOfWall();
             scenario.Time.Stop = 0.2;
+            % Nearer the FoV's side edge than the wall, so the observer's
+            % pose gradient is nonzero and the arrow is drawn.
+            scenario.Leader.InitialPose = [1.0, 0.6, 0];
             first = simulation.runScenario(scenario);
             second = simulation.runScenario(scenario);
             beforeFigures = findall(groot, 'Type', 'figure');

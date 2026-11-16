@@ -358,7 +358,8 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `scripts/plotControlDiagnostics.m` | Plots CBF diagnostics for a `result` already in the workspace. |
 | `scripts/checkTransport.m` | Plots `estimation.transportBoundary` against truth in `scenarios.openRoom` (rotation, translation) and `scenarios.boxInFrontOfWall` (sideways slide: edges, overlap, disocclusion). |
 | `scripts/compareGradientSources.m` | Runs `boxInFrontOfWall` with the oracle and with source (ii); reports and plots (`viz.plotGradientComparison`) the plan §8.2 measures via `control.compareGradients`. |
-| `scripts/checkFilterConsistency.m` | Runs the boundary EKF over several seeds on `openRoom` and a scripted `boxInFrontOfWall` slide; prints `metrics.filterConsistency`'s per-label table. |
+| `scripts/checkFilterConsistency.m` | Runs the boundary EKF over several seeds on `openRoom` and a scripted `boxInFrontOfWall` slide; prints `metrics.filterConsistency`'s per-label table, then a quick check of mean NEES against a common scale on q0, qv, qw. |
+| `scripts/generateResults.m` | Runs the four gradient sources on `boxInFrontOfWall` and the oracle and EKF on `clutteredField` (noise 0.1 m, seeds 1–3, each scenario's run-script controller settings) and writes `results/` (ignored by Git): `runs.csv` (one row per run, `metrics.runSummary`), `results.csv` and a booktabs `results.tex` (mean ± std over seeds), and per scenario from the first seed each run's summary and QP figures, and the box's side-by-side comparison frames, as vector PDF and PNG; `scenariosToRun` reruns a subset and keeps the other rows. About 20 minutes. |
 
 ### `+scenarios`: experiment definitions (return a scenario struct, run nothing)
 
@@ -409,6 +410,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 | `signedEuclideanDistance.m` | Signed distance from points to a polygon: negative inside, positive outside, zero on the edge. Invalid polygons raise errors. Used for h. |
 | `+internal/normalizeBoundary.m` | Closes and validates a polygon (degenerate or self-intersecting → error); all nonadjacent edge pairs are tested in one vectorized pass. |
 | `+internal/pointToSegments.m` | Closest point and distance to a set of segments. |
+| `runSummary.m` | One results row per closed-loop run: truly visible %, hidden time, infeasible and CBF-active steps, minimum h, input change per second, boundary RMSE against the noiseless cast, and surface-beam NEES for filter beliefs. |
 | `filterConsistency.m` | Per-beam RMSE/NEES/NIS/gate-failure-rate report for one or several boundary-EKF results, by label and overall, plus first-measurement NIS and `StepRatio` stats. |
 | `printFilterConsistency.m` | Thin text printer for a `filterConsistency` report. |
 
@@ -446,7 +448,7 @@ use it to compare source (ii) against the oracle on `boxInFrontOfWall`.
 |---|---|
 | `animateSimulation.m` | Replay. World panel (obstacles, oracle/measurement/belief polygons, optional rays, agents, title with h and status) and range panel with fixed limits (oracle, measured, posterior ±1σ, the leader's bearing, and for filter runs markers on edge/overlap/disoccluded/newly explored beams). Rays off by default; legends below the axes. Always shows the final frame. |
 | `plotSimulationSummary.m` | Trajectories (one legend entry for all obstacles) and the barrier h over time, with the intervals where the leader is truly hidden shaded. |
-| `plotControlDiagnostics.m` | The QP diagnostics: h, inputs and slack over time; prints status counts. |
+| `plotControlDiagnostics.m` | The QP diagnostics: h, inputs and slack over time; prints status counts. `'Visible', false` and the returned figure handle allow export. |
 | `saveSimulationFrames.m` | Exports selected replay frames as PNGs under `frames/` (ignored by Git). |
 | `plotTransportCheck.m` | Plots `transportBoundary`'s predicted mean against a truth scan, beams marked by label, with s_i/r_far,i markers on disoccluded beams; replay-only diagnostic. |
 | `animateComparison.m` | Synchronized side-by-side replay of several runs on the same time grid (e.g. oracle vs source ii): true visible polygon, trajectories, agents, and the direction of each run's applied gradient (dh/dx, dh/dy); titles give t, h, status, and true visibility. |

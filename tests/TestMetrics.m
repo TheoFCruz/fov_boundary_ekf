@@ -2,6 +2,30 @@ classdef TestMetrics < matlab.unittest.TestCase
     %TESTMETRICS Tests for the sampled-polygon signed-distance metric.
 
     methods (Test)
+        function runSummaryReportsResultsRow(testCase)
+            % One results row per run: visibility scored against the truth,
+            % NEES only for filter beliefs; the QP figure exports headless.
+            for source = ["latest", "filter"]
+                scenario = scenarios.boxInFrontOfWall();
+                scenario.Time.Stop = 0.5;
+                scenario.Sensor.RangeNoiseStd = 0.05;
+                scenario.Sensor.Seed = 1;
+                scenario = scenarios.withGradientSource(scenario, source);
+                result = simulation.runScenario(scenario);
+                summary = metrics.runSummary(result);
+
+                verifyGreaterThanOrEqual(testCase, summary.VisiblePercent, 0);
+                verifyLessThanOrEqual(testCase, summary.VisiblePercent, 100);
+                verifyEqual(testCase, summary.HiddenTime, ...
+                    0.025 * sum(~result.Metrics.TrueVisible), 'AbsTol', 1e-12);
+                verifyGreaterThan(testCase, summary.BoundaryRmse, 0);
+                verifyEqual(testCase, isnan(summary.SurfaceNees), source == "latest");
+            end
+            handles = viz.plotControlDiagnostics(result, 'Visible', false);
+            testCase.addTeardown(@() close(handles.Figure));
+            verifyEqual(testCase, string(get(handles.Figure, 'Visible')), "off");
+        end
+
         function calculatesSignedDistancesForSquare(testCase)
             boundary = squareBoundary();
             points = [0, 0; 0.5, 0; 1, 0; 2, 0; 2, 2];

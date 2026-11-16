@@ -55,6 +55,35 @@ monotone (gating interacts). With the smaller Q, consistent beams fail the
 gated beams (re-initialised to σ_r²). Source (iii) on `boxInFrontOfWall`
 (noise 0.05) still keeps the leader visible 100% with no infeasible steps.
 
+Superseded the same day: in closed loop the ×0.01 Q is over-confident
+(surface NEES 1.4–3.7 at σ_r = 0.05, up to 10.4 at 0.1 in the cluttered
+field, seed 1). The defaults are back to the prototype values (q0 = 1e-4 m²,
+qv = 2.5e-3, qw = 0.04), which give 0.7–1.5 over σ_r = 0.05–0.2 on both
+compact scenarios (margin 0.1, rate factor 6, seeds 1–3). Boundary RMSE barely
+depends on Q.
+
+`boxInFrontOfWall`'s wall face moved from x = 1.8 to 1.6, 0.2 m behind the
+leader's path, so wall-range noise reaches the barrier. Latest reading (ii)
+against EKF (iii), σ_r = 0.1, margin 0.1, rate factor 6, seeds 1–3: infeasible
+steps 102 → 17 of 600, input change 6.8 → 2.1 /s, boundary RMSE 0.071 →
+0.035 m; visibility 100% for both. With the wall at 1.8 the same settings
+gave 3.7 → 1.7 infeasible steps. Results now use σ_r = 0.1 and margin 0.1 in
+both scenarios (box run 18 s). The wall-position literals in `TestTransport`
+were updated. The full suite passed 123/123 after the move, once
+`TestSimulation`'s comparison-replay test placed its leader nearer the FoV
+side edge: with the wall 0.2 m behind the leader, the nearest boundary at
+t = 0 is the wall, so the oracle's pose gradient is exactly zero
+("zero-control-authority") and no arrow is drawn.
+
+`scripts/generateResults.m` (3 seeds, σ_r = 0.1, margin 0.1, R = 6W,
+axes+diagonals), mean ± std. Box: (ii) 102 ± 11 infeasible steps of 720,
+input change 5.69 /s, RMSE 0.075 m; (iii) 17 ± 4, 1.81 /s, 0.035 m, NEES
+0.73; (iv) 30 ± 10, 2.25 /s, 0.035 m. Visibility 100% for every source. The
+cluttered field is kept as a validation of (iii) against the oracle (both
+100% visible; (iii) RMSE 0.017 m, NEES 1.05); its four-source comparison did
+not separate the sources. R = 12W and 24W made the box inputs smoother but
+were not adopted.
+
 `scripts/runClutteredField.m` trims the leader's schedule to `stopTime`,
 so runs shorter than the path are valid. Theo extended the cluttered
 leader path (a final leg back to (3.8, 1.0); about 5.8 m at 0.21 m/s):

@@ -416,8 +416,8 @@ classdef TestTransport < matlab.unittest.TestCase
 
         function farRangeMatchesFlatWallGeometry(testCase)
             % Hand-checked r_far: in boxInFrontOfWall the wall's front face
-            % is the flat line x = 1.8, so along a beam at relative angle
-            % theta the true range to it is 1.8 / cos(theta). Beam 44
+            % is the flat line x = 1.6, so along a beam at relative angle
+            % theta the true range to it is 1.6 / cos(theta). Beam 44
             % (3.75 deg) disoccludes behind the box when slid 0.06 m
             % sideways; its r_far must match that flat-wall formula.
             [belief, scenario] = boxInFrontOfWallBelief();
@@ -426,7 +426,7 @@ classdef TestTransport < matlab.unittest.TestCase
                 belief, pose, estimation.defaultTransportParams());
 
             verifyEqual(testCase, prediction.Label(44), "disoccluded");
-            expectedFarRange = 1.8 / cos(prediction.Angles(44));
+            expectedFarRange = 1.6 / cos(prediction.Angles(44));
             verifyEqual(testCase, prediction.FarRange(44), expectedFarRange, 'AbsTol', 1e-3);
         end
 
@@ -434,7 +434,7 @@ classdef TestTransport < matlab.unittest.TestCase
             % Decision D1: a far-surface pair cannot bracket a beam inside
             % a jump gap, so no beam's predicted range should fall strictly
             % between the box's own range (~0.80-0.82 m across its angular
-            % width) and the wall's (~1.8-2.0 m) unless it is explicitly
+            % width) and the wall's (~1.6-1.8 m) unless it is explicitly
             % "disoccluded" (the free-space hypothesis, eq. 11).
             [belief, scenario] = boxInFrontOfWallBelief();
             params = estimation.defaultTransportParams();
@@ -443,7 +443,7 @@ classdef TestTransport < matlab.unittest.TestCase
             for row = 1:size(offsets, 1)
                 pose = scenario.Observer.InitialPose + offsets(row, :);
                 prediction = estimation.transportBoundary(belief, pose, params);
-                inGap = prediction.Mean > 0.85 & prediction.Mean < 1.75;
+                inGap = prediction.Mean > 0.85 & prediction.Mean < 1.55;
                 verifyTrue(testCase, all(prediction.Label(inGap) == "disoccluded"));
             end
         end

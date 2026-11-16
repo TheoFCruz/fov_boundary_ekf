@@ -182,6 +182,21 @@ observer motion through `Predict` before the next scan goes to `Correct`.
 Estimators and policies do not receive obstacle polygons, raw casts, future
 inputs, or complete logs.
 
+## Results
+
+`scripts/generateResults.m` runs the four gradient sources on
+`boxInFrontOfWall`, and the oracle and EKF on `clutteredField` (a validation),
+over three noise seeds (σ_r = 0.1 m), and writes `results/` (ignored by Git).
+`scenariosToRun` reruns only some scenarios and keeps the others' rows:
+
+- `runs.csv`: one row per run;
+- `results.csv` and a LaTeX (`booktabs`) `results.tex`: mean ± std over the
+  seeds per scenario and source;
+- per scenario, from the first seed: each source's summary and QP figures,
+  and (box only) side-by-side comparison frames, as vector PDF and PNG.
+
+It takes about 20 minutes.
+
 ## Replay and diagnostics
 
 `simulation.runScenario` is headless and deterministic. It returns `Config`,

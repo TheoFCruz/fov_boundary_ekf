@@ -23,15 +23,17 @@ params.JumpRelative = 0.08;
 params.FreeSpaceFraction = 0.5;
 
 % Process noise Q_ii = q0 + qv*|dp|^2 + qw*dpsi^2 (+ qe,i on edge beams,
-% eq. 6). The prototype's values scaled by 0.01 (2026-11-15): with dt =
-% 0.025 s they made the filter under-confident (NEES 0.6-0.7 on surface
-% beams); scaled, scripts/checkFilterConsistency.m gives 0.83-1.09.
+% eq. 6). Tuned in closed loop (2026-11-15): with the CBF-QP moving the
+% observer these values give surface-beam NEES of about 0.7-1.5 for range
+% noise 0.05-0.2 m. Scripted, controller-free motion
+% (scripts/checkFilterConsistency.m) prefers values 100 times smaller; the
+% filter is then over-confident in closed loop (NEES up to 10).
 % Interpolation-error floor (m^2).
-params.ProcessNoiseFloor = 1e-6;
+params.ProcessNoiseFloor = 1e-4;
 % Translation growth (m^2 per m^2 of |dp|^2).
-params.TranslationNoise = 2.5e-5;
+params.TranslationNoise = 2.5e-3;
 % Rotation growth (m^2 per rad^2 of dpsi^2).
-params.RotationNoise = 4e-4;
+params.RotationNoise = 0.04;
 
 % Newly-explored beam variance sigma_bar^2 = sigma0^2 + (kappa*mu_bar*delta)^2
 % (sec. 4.7), with delta the angular distance to the old point the fill

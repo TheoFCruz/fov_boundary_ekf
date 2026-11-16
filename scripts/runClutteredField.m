@@ -8,8 +8,8 @@
 run('startup.m');
 
 % --- Settings: source and sensor ---
-source = "filter";               % "oracle" | "latest" | "filter" | "filter-conservative"
-rangeNoiseStd = 0.05;            % range noise (m); the filter assumes the same
+source = "latest";               % "oracle" | "latest" | "filter" | "filter-conservative"
+rangeNoiseStd = 0.10;            % range noise (m); the filter assumes the same
 seed = 1;                        % noise seed
 stopTime = 30;                   % run length (s), multiple of 0.025 (e.g. 8 to test)
 
@@ -19,7 +19,7 @@ rateFactor = 6;                  % R = rateFactor * W: cost of changing the inpu
 inputLower = [-0.5; -0.5; -1];   % body input bounds [vx; vy; omega] (m/s, m/s, rad/s);
 inputUpper = [0.5; 0.5; 1];      % each must allow zero (standing still)
 cbfRate = 4;                     % gamma in hdot + gamma*h >= -slack
-distanceMargin = 0.15;            % m kept inside the visible set
+distanceMargin = 0.1;            % m kept inside the visible set
 gradientDirections = "axes+diagonals";   % or "axes" (single-axis samples only)
 gradientBeamMultiples = [1, 2];  % gradient sample steps, in beam spacings
 
