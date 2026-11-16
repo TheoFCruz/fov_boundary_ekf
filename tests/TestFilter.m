@@ -126,7 +126,9 @@ classdef TestFilter < matlab.unittest.TestCase
             % Pminus = P + q0, P = Pminus*sigma^2/(Pminus + sigma^2) exactly;
             % no-return beams (zero F row, decision P6) follow
             % Pminus = q0, P = q0*sigma^2/(q0 + sigma^2). H = I (every beam
-            % measured each step), so a diagonal prior stays diagonal.
+            % measured each step), so a diagonal prior stays diagonal. A
+            % beam the 0.99 gate rejects (about 1% of consistent ones) is
+            % re-initialised to sigma^2 instead.
             rangeNoiseStd = 0.02;
             scenario = openRoomWithEkf(rangeNoiseStd, 7);
             scenario.Observer.Reference = struct('Times', 0, 'Values', [0, 0, 0]);
@@ -138,12 +140,11 @@ classdef TestFilter < matlab.unittest.TestCase
             priorVariance = diag(result.Beliefs{1}.Covariance);
             for k = 2:numel(result.Beliefs)
                 belief = result.Beliefs{k};
-                verifyFalse(testCase, any(belief.Gated));
                 verifyEqual(testCase, belief.Covariance, ...
                     diag(diag(belief.Covariance)), 'AbsTol', 1e-9);
 
-                isBlend = belief.Labels == "blend";
-                isNoReturn = belief.Labels == "no-return";
+                isBlend = belief.Labels == "blend" & ~belief.Gated;
+                isNoReturn = belief.Labels == "no-return" & ~belief.Gated;
                 predictedBlend = priorVariance + q0;
                 expectedBlend = predictedBlend .* sigma2 ./ (predictedBlend + sigma2);
                 expectedNoReturn = q0 * sigma2 / (q0 + sigma2);
@@ -153,6 +154,8 @@ classdef TestFilter < matlab.unittest.TestCase
                     'RelTol', 1e-12);
                 verifyEqual(testCase, actual(isNoReturn), ...
                     expectedNoReturn * ones(sum(isNoReturn), 1), 'RelTol', 1e-12);
+                verifyEqual(testCase, actual(belief.Gated), ...
+                    sigma2 * ones(sum(belief.Gated), 1), 'RelTol', 1e-12);
 
                 priorVariance = actual;
             end

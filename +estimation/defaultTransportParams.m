@@ -23,12 +23,15 @@ params.JumpRelative = 0.08;
 params.FreeSpaceFraction = 0.5;
 
 % Process noise Q_ii = q0 + qv*|dp|^2 + qw*dpsi^2 (+ qe,i on edge beams,
-% eq. 6). Starting values only, to be tuned by the normalised error per
-% beam once the EKF correct step exists (plan sec. 4.8, stage 6).
+% eq. 6). Tuned in closed loop (2026-11-15): with the CBF-QP moving the
+% observer these values give surface-beam NEES of about 0.7-1.5 for range
+% noise 0.05-0.2 m. Scripted, controller-free motion
+% (scripts/checkFilterConsistency.m) prefers values 100 times smaller; the
+% filter is then over-confident in closed loop (NEES up to 10).
 % Interpolation-error floor (m^2).
 params.ProcessNoiseFloor = 1e-4;
 % Translation growth (m^2 per m^2 of |dp|^2).
-params.TranslationNoise = 0.0025;
+params.TranslationNoise = 2.5e-3;
 % Rotation growth (m^2 per rad^2 of dpsi^2).
 params.RotationNoise = 0.04;
 

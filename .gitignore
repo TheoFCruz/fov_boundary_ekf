@@ -3,3 +3,9 @@
 
 # Generated replay key frames.
 /frames/
+
+# MATLAB editor autosaves.
+*.asv
+
+# Generated results (scripts/generateResults.m).
+/results/

@@ -30,8 +30,9 @@ viz.animateSimulation(result, 'ShowRays', false, 'ShowHitPoints', true);
 For the CBF-QP experiment, use `scenarios.controlTest()` or
 `scenarios.boxInFrontOfWall()` (a compact occlusion scenario: a 0.2 m box in
 front of a wall, 2 m FoV, leader at 0.1 m/s), `scenarios.clutteredField()`
-(small posts scattered around a slow leader's path, loosely after the
-VisCoNetwork cluttered environment), or configure
+(a leader exploring forward on an open path through a staggered field of
+small posts with a 1 m FoV, which a static observer sees only 11% of the time),
+or configure
 `control.makeSignedDistanceCbfPolicy(config)` on a moving-pair scenario (see
 `scripts/runMovingPair.m`). It requires MATLAB Optimization Toolbox
 (`quadprog`) and is an experimental sampled-polygon baseline, not a safety
@@ -180,6 +181,21 @@ current posterior; after both agents advance, the estimator receives completed
 observer motion through `Predict` before the next scan goes to `Correct`.
 Estimators and policies do not receive obstacle polygons, raw casts, future
 inputs, or complete logs.
+
+## Results
+
+`scripts/generateResults.m` runs the four gradient sources on
+`boxInFrontOfWall`, and the oracle and EKF on `clutteredField` (a validation),
+over three noise seeds (σ_r = 0.1 m), and writes `results/` (ignored by Git).
+`scenariosToRun` reruns only some scenarios and keeps the others' rows:
+
+- `runs.csv`: one row per run;
+- `results.csv` and a LaTeX (`booktabs`) `results.tex`: mean ± std over the
+  seeds per scenario and source;
+- per scenario, from the first seed: each source's summary and QP figures,
+  and (box only) side-by-side comparison frames, as vector PDF and PNG.
+
+It takes about 20 minutes.
 
 ## Replay and diagnostics
 

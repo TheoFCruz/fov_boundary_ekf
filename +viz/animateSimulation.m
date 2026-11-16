@@ -14,7 +14,7 @@ parser.FunctionName = 'viz.animateSimulation';
 addParameter(parser, 'Visible', true);
 addParameter(parser, 'FrameRate', result.Config.Playback.FrameRate);
 addParameter(parser, 'Speed', result.Config.Playback.Speed);
-addParameter(parser, 'ShowRays', true);
+addParameter(parser, 'ShowRays', false);
 addParameter(parser, 'ShowHitPoints', false);
 addParameter(parser, 'AutoPlay', true);
 parse(parser, varargin{:});
@@ -76,11 +76,6 @@ for index = 1:numel(result.Config.Obstacles)
         'FaceAlpha', 0.9, 'EdgeColor', [0.05, 0.05, 0.05], ...
         'HandleVisibility', 'off');
 end
-base = result.Config.Base.Position;
-plot(worldAxes, base(1), base(2), 's', 'Color', [0.10, 0.50, 0.20], ...
-    'MarkerFaceColor', [0.10, 0.50, 0.20], 'DisplayName', 'Base');
-handles.BaseLink = plot(worldAxes, nan, nan, '--', 'Color', [0.35, 0.55, 0.35], ...
-    'DisplayName', 'Observer-base reference');
 handles.ObserverTrajectory = plot(worldAxes, nan, nan, '-', ...
     'Color', [0.05, 0.25, 0.70], 'DisplayName', 'Observer trajectory');
 handles.LeaderTrajectory = plot(worldAxes, nan, nan, '-', ...
@@ -107,15 +102,13 @@ handles.Leader = plot(worldAxes, nan, nan, 'o', 'Color', [0.85, 0.20, 0.10], ...
     'MarkerFaceColor', [0.85, 0.20, 0.10], 'DisplayName', 'Leader');
 handles.ObserverHeading = quiver(worldAxes, nan, nan, nan, nan, 0.8, ...
     'Color', [0.05, 0.25, 0.70], 'LineWidth', 1.2, 'HandleVisibility', 'off');
-handles.LeaderHeading = quiver(worldAxes, nan, nan, nan, nan, 0.8, ...
-    'Color', [0.85, 0.20, 0.10], 'LineWidth', 1.2, 'HandleVisibility', 'off');
 axis(worldAxes, 'equal');
 xlim(worldAxes, result.Config.Playback.Bounds(1:2));
 ylim(worldAxes, result.Config.Playback.Bounds(3:4));
 grid(worldAxes, 'on');
 xlabel(worldAxes, 'x (m)');
 ylabel(worldAxes, 'y (m)');
-legend(worldAxes, 'show', 'Location', 'best');
+legend(worldAxes, 'show', 'Location', 'southoutside', 'NumColumns', 2);
 
 % The range panel shows oracle, measurement, and posterior data separately.
 hold(boundaryAxes, 'on');
@@ -127,12 +120,37 @@ handles.StdBand = fill(boundaryAxes, nan, nan, [0.95, 0.70, 0.20], ...
     'FaceAlpha', 0.25, 'EdgeColor', 'none', 'DisplayName', 'Posterior +/- 1 std');
 handles.MeanLine = plot(boundaryAxes, nan, nan, '--', 'Color', [0.90, 0.50, 0.05], ...
     'LineWidth', 1.4, 'DisplayName', 'Posterior mean');
-handles.BoundaryNote = text(boundaryAxes, 0.02, 0.96, '', ...
-    'Units', 'normalized', 'VerticalAlignment', 'top');
+% Leader bearing relative to the observer heading: where the leader sits
+% against the boundary.
+handles.LeaderBearing = plot(boundaryAxes, nan, nan, ':', ...
+    'Color', [0.85, 0.20, 0.10], 'LineWidth', 1.4, 'DisplayName', 'Leader bearing');
+% Filter beliefs carry the prediction label of each beam; mark the beams
+% the prediction model treated specially (methodology sec. 1.2).
+handles.LabelMarkers = struct();
+if isfield(result.Beliefs{end}, 'Labels')
+    % Label, legend name, colour, marker.
+    labelStyles = { ...
+        "edge", 'Edge', [0.10, 0.45, 0.20], 'o'; ...
+        "overlap", 'Overlap', [0.35, 0.35, 0.35], 's'; ...
+        "disoccluded", 'Disoccluded', [0.80, 0.10, 0.50], '^'; ...
+        "new", 'Newly explored', [0.10, 0.60, 0.80], 'v'};
+    for k = 1:size(labelStyles, 1)
+        label = labelStyles{k, 1};
+        handles.LabelMarkers.(label) = plot(boundaryAxes, nan, nan, labelStyles{k, 4}, ...
+            'Color', labelStyles{k, 3}, 'MarkerFaceColor', labelStyles{k, 3}, ...
+            'MarkerSize', 4, 'DisplayName', labelStyles{k, 2});
+    end
+end
+handles.BoundaryNote = subtitle(boundaryAxes, '');
+% Fixed limits (the whole aperture, 0 to the range cap) and a fixed legend
+% place, so the panel does not rescale or jump between frames.
+halfAperture = result.Config.Observer.Fov.OpeningAngle / 2;
+xlim(boundaryAxes, [-halfAperture, halfAperture]);
+ylim(boundaryAxes, [0, 1.05 * result.Config.Observer.Fov.MaxRange]);
 grid(boundaryAxes, 'on');
 xlabel(boundaryAxes, 'Relative angle (rad)');
 ylabel(boundaryAxes, 'Range (m)');
-legend(boundaryAxes, 'show', 'Location', 'best');
+legend(boundaryAxes, 'show', 'Location', 'southoutside', 'NumColumns', 2);
 handles.Figure = figureHandle;
 handles.WorldAxes = worldAxes;
 handles.BoundaryAxes = boundaryAxes;
@@ -152,15 +170,12 @@ measurementBoundary = fov.boundaryFromRanges(scan.ObserverPose, ...
     scan.Angles, scan.Ranges, scan.OpeningAngle);
 observerPose = result.ObserverPose(index, :);
 leaderPose = result.LeaderPose(index, :);
-base = result.Config.Base.Position;
 
 % Update the world panel from this logged sample.
 set(handles.ObserverTrajectory, 'XData', result.ObserverPose(1:index, 1), ...
     'YData', result.ObserverPose(1:index, 2));
 set(handles.LeaderTrajectory, 'XData', result.LeaderPose(1:index, 1), ...
     'YData', result.LeaderPose(1:index, 2));
-set(handles.BaseLink, 'XData', [observerPose(1), base(1)], ...
-    'YData', [observerPose(2), base(2)]);
 set(handles.RawBoundary, 'XData', raw.VisibleBoundary(:, 1), ...
     'YData', raw.VisibleBoundary(:, 2));
 set(handles.MeasurementBoundary, 'XData', measurementBoundary(:, 1), ...
@@ -190,8 +205,6 @@ set(handles.Observer, 'XData', observerPose(1), 'YData', observerPose(2));
 set(handles.Leader, 'XData', leaderPose(1), 'YData', leaderPose(2));
 set(handles.ObserverHeading, 'XData', observerPose(1), 'YData', observerPose(2), ...
     'UData', cos(observerPose(3)), 'VData', sin(observerPose(3)));
-set(handles.LeaderHeading, 'XData', leaderPose(1), 'YData', leaderPose(2), ...
-    'UData', cos(leaderPose(3)), 'VData', sin(leaderPose(3)));
 titleText = sprintf('World replay, t = %.2f s', result.Time(index));
 % The final logged sample has no interval diagnostics; reuse the last one.
 diagnosticsIndex = min(index, numel(result.PolicyDiagnostics));
@@ -210,14 +223,26 @@ std = full(sqrt(diag(belief.Covariance)));
 set(handles.OracleRange, 'XData', scan.Angles, 'YData', raw.Distances);
 set(handles.ScanLine, 'XData', scan.Angles, 'YData', scan.Ranges);
 set(handles.MeanLine, 'XData', belief.Angles, 'YData', belief.Mean);
+leaderOffset = leaderPose(1:2) - observerPose(1:2);
+leaderAngle = atan2(leaderOffset(2), leaderOffset(1)) - observerPose(3);
+leaderBearing = mod(leaderAngle + pi, 2 * pi) - pi;
+set(handles.LeaderBearing, 'XData', [leaderBearing, leaderBearing], ...
+    'YData', [0, 1.05 * belief.MaxRange]);
+markedLabels = fieldnames(handles.LabelMarkers);
+for k = 1:numel(markedLabels)
+    isLabel = belief.Labels == markedLabels{k};
+    set(handles.LabelMarkers.(markedLabels{k}), ...
+        'XData', belief.Angles(isLabel), 'YData', belief.Mean(isLabel));
+end
 if any(std > 0)
     set(handles.StdBand, 'XData', [belief.Angles; flipud(belief.Angles)], ...
         'YData', [belief.Mean - std; flipud(belief.Mean + std)], 'Visible', 'on');
-    set(handles.BoundaryNote, 'String', 'Pointwise standard deviation; not a visibility guarantee.');
+    set(handles.BoundaryNote, 'String', ...
+        'Pointwise 1-sigma band; not a visibility guarantee.');
 else
     set(handles.StdBand, 'Visible', 'off');
-    set(handles.BoundaryNote, 'String', sprintf('%s: zero covariance (no confidence guarantee).', ...
-        char(belief.Method)));
+    set(handles.BoundaryNote, 'String', ...
+        sprintf('%s: zero covariance (no confidence guarantee).', char(belief.Method)));
 end
 title(handles.BoundaryAxes, sprintf('Boundary estimate, t = %.2f s', result.Time(index)));
 end

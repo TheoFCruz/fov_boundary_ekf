@@ -17,6 +17,125 @@ verification remain pending. Each checklist item is marked
 verification has actually been run. An implemented but unverified item stays
 unchecked with an honest note.
 
+## 0. 2026-11-15 status note: visualization for results, process-noise scale
+
+Visualization:
+- `viz.plotSimulationSummary`: one legend entry for all obstacles (the
+  cluttered field listed every post); no base marker; legend below the
+  axes; the right panel now shows the barrier h over time with the
+  intervals where the leader is truly hidden shaded, instead of the
+  belief-polygon distance.
+- `viz.animateSimulation`: the range panel has fixed limits (the whole
+  aperture, 0 to 1.05 r_max), so it no longer rescales every frame. It also
+  shows the leader's bearing and, for filter beliefs, markers on beams the
+  prediction labelled edge, overlap, disoccluded or newly explored. The
+  world panel drops the base and the leader heading arrow (the leader's yaw
+  is always 0). Legends sit below the axes, and the covariance note is a
+  subtitle.
+- `viz.plotControlDiagnostics` keeps only the QP diagnostics (h, inputs,
+  slack); the step-size figure was dropped.
+
+Process noise: `scripts/checkFilterConsistency.m` adds a quick check that
+scales q0, qv and qw by a common factor (scripted motion, no controller,
+5 seeds). Mean NEES (overall / surface beams):
+
+| Case | ×1 | ×0.3 | ×0.1 | ×0.03 | ×0.01 |
+|---|---|---|---|---|---|
+| openRoom, σ_r = 0.01 | 0.66 / 0.70 | 0.57 / 0.60 | 0.55 / 0.58 | 0.62 / 0.64 | 0.79 / 0.83 |
+| openRoom, σ_r = 0.02 | 0.56 / 0.59 | 0.55 / 0.57 | 0.61 / 0.64 | 0.77 / 0.81 | 1.04 / 1.09 |
+| box slide, σ_r = 0.01 | 0.33 / 0.72 | 0.30 / 0.64 | 0.31 / 0.65 | 0.37 / 0.79 | 0.50 / 1.07 |
+
+The defaults are now ×0.01 (q0 = 1e-6 m², qv = 2.5e-5, qw = 4e-4): the
+prototype's values were about 100× too large for dt = 0.025 s. The overall
+NEES stays low because open beams are predicted and measured at exactly
+r_max (error 0); the surface-beam value is the meaningful one. Not a full
+tuning: the hypothesis variances (σ0, κ) are unchanged and the curve is not
+monotone (gating interacts). With the smaller Q, consistent beams fail the
+0.99 gate about 1% of the time, so the static-observer test now allows
+gated beams (re-initialised to σ_r²). Source (iii) on `boxInFrontOfWall`
+(noise 0.05) still keeps the leader visible 100% with no infeasible steps.
+
+Superseded the same day: in closed loop the ×0.01 Q is over-confident
+(surface NEES 1.4–3.7 at σ_r = 0.05, up to 10.4 at 0.1 in the cluttered
+field, seed 1). The defaults are back to the prototype values (q0 = 1e-4 m²,
+qv = 2.5e-3, qw = 0.04), which give 0.7–1.5 over σ_r = 0.05–0.2 on both
+compact scenarios (margin 0.1, rate factor 6, seeds 1–3). Boundary RMSE barely
+depends on Q.
+
+`boxInFrontOfWall`'s wall face moved from x = 1.8 to 1.6, 0.2 m behind the
+leader's path, so wall-range noise reaches the barrier. Latest reading (ii)
+against EKF (iii), σ_r = 0.1, margin 0.1, rate factor 6, seeds 1–3: infeasible
+steps 102 → 17 of 600, input change 6.8 → 2.1 /s, boundary RMSE 0.071 →
+0.035 m; visibility 100% for both. With the wall at 1.8 the same settings
+gave 3.7 → 1.7 infeasible steps. Results now use σ_r = 0.1 and margin 0.1 in
+both scenarios (box run 18 s). The wall-position literals in `TestTransport`
+were updated. The full suite passed 123/123 after the move, once
+`TestSimulation`'s comparison-replay test placed its leader nearer the FoV
+side edge: with the wall 0.2 m behind the leader, the nearest boundary at
+t = 0 is the wall, so the oracle's pose gradient is exactly zero
+("zero-control-authority") and no arrow is drawn.
+
+`scripts/generateResults.m` (3 seeds, σ_r = 0.1, margin 0.1, R = 6W,
+axes+diagonals), mean ± std. Box: (ii) 102 ± 11 infeasible steps of 720,
+input change 5.69 /s, RMSE 0.075 m; (iii) 17 ± 4, 1.81 /s, 0.035 m, NEES
+0.73; (iv) 30 ± 10, 2.25 /s, 0.035 m. Visibility 100% for every source. The
+cluttered field is kept as a validation of (iii) against the oracle (both
+100% visible; (iii) RMSE 0.017 m, NEES 1.05); its four-source comparison did
+not separate the sources. R = 12W and 24W made the box inputs smoother but
+were not adopted.
+
+`scripts/runClutteredField.m` trims the leader's schedule to `stopTime`,
+so runs shorter than the path are valid. Theo extended the cluttered
+leader path (a final leg back to (3.8, 1.0); about 5.8 m at 0.21 m/s):
+static observer TrueVisible 0.086, oracle CBF 1.000 with the constraint
+active on 84% of steps and never infeasible.
+
+## 0. 2026-11-15 status note: a more challenging cluttered field
+
+`scenarios.clutteredField` was redesigned: the old version kept its seven
+posts deliberately off the line of sight and barely activated the
+controller. Now the leader walks an open, weaving path forward and never
+returns, and 0.1 m posts sit on a staggered grid with 0.6 m spacing,
+removed within 0.25 m of the leader's path and 0.5 m of the observer's
+start. The observer keeps the zero nominal reference.
+
+A first version with the usual 2 m FoV (leader starting 1 m ahead, 40 s)
+was measured at three post spacings (noiseless, oracle CBF, single run):
+
+| Post spacing | Posts | Static observer: TrueVisible | Oracle CBF: TrueVisible | Infeasible steps | CBF active |
+|---|---|---|---|---|---|
+| 0.60 m | 27 | 0.282 | 1.000 | 53 / 1600 | 61% |
+| 0.50 m | 41 | 0.120 | 0.960 | 140 | 69% |
+| 0.45 m | 53 | 0.270 | 0.766 | 575 | 44% |
+
+The adopted version keeps 0.6 m spacing with a 1 m FoV and the leader
+starting 0.5 m ahead. Run length sets the leader's speed; all lengths were
+feasible for the oracle:
+
+| Run length | Leader speed | Static: TrueVisible | Oracle: TrueVisible | Infeasible | CBF active | Min h | Median distance | Run time |
+|---|---|---|---|---|---|---|---|---|
+| **30 s (adopted)** | 0.165 m/s | 0.107 | 1.000 | 0 | 86% | −0.004 | 0.90 m | 66 s |
+| 40 s | 0.121 m/s | 0.109 | 1.000 | 0 | 87% | −0.004 | 0.90 m | 90 s |
+| 50 s | 0.096 m/s | 0.110 | 1.000 | 0 | 88% | −0.003 | 0.90 m | 119 s |
+| 60 s | 0.079 m/s | 0.111 | 1.000 | 0 | 88% | −0.003 | 0.90 m | 139 s |
+
+With the zero nominal the observer trails at its range limit (median
+distance 0.90 m = range minus margin) and never turns: dh/dψ is zero unless
+the nearest polygon feature is a sector side, so the binding constraint is
+mostly the range arc, with posts secondary. A standoff-following nominal was
+considered and declined. `viz.animateSimulation` now hides rays by default
+(`ShowRays = false`).
+
+A source (iii) run (noise 0.05 m, margin 0.15) failed at t = 26.25 s with a
+singular innovation covariance. The observer had come within 0.14 m of a
+post, a noisy return was clipped to 0 m, and a point at range 0 has no
+bearing (atan2(0, 0)), so eq. 4's dφ/dµ = sin α/ρ divided by zero and Σ̄
+became NaN. `estimation.transport.transportEndpoints` now treats ranges
+below 1 mm as 1 mm, with a regression test in `TestTransport`. Not run yet
+(left for Theo to test). The observer coming that close to a post also
+reflects the absence of any collision barrier (plan §7.5). Not run yet: the other sources on the new field, the
+full suite after this change.
+
 ## 0. 2026-11-14 status note: gradient samples along combined directions; configurable scripts
 
 `control.barrierGradient` can also sample the observer along every pair of

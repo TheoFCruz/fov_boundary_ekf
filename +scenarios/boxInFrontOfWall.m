@@ -7,6 +7,9 @@ function scenario = boxInFrontOfWall()
 %   nominal reference, so the oracle-boundary CBF-QP policy is the only source
 %   of observer motion. The leader walks at 0.1 m/s (a fifth of the 0.5 m/s
 %   input bound) through the box's shadow between about t = 4 s and t = 8 s.
+%   The wall face (x = 1.6) is 0.2 m behind the leader's path (x = 1.4), so
+%   range noise on the wall moves the estimated boundary across the leader:
+%   this is where filtering the boundary helps the CBF-QP most.
 
 % Start from the standard runner configuration, then exercise real occlusion.
 scenario = scenarios.movingPair();
@@ -21,7 +24,7 @@ scenario.Leader.InitialPose = [1.4, 0.6, 0];
 scenario.Leader.Reference = struct('Times', 0, 'Values', [0, -0.1, 0]);
 scenario.Obstacles = [fov.polygonObstacle('box', ...
     [0.8, -0.1; 1, -0.1; 1, 0.1; 0.8, 0.1]), fov.polygonObstacle('wall', ...
-    [1.8, -1; 1.86, -1; 1.86, 1; 1.8, 1])];
+    [1.6, -1; 1.66, -1; 1.66, 1; 1.6, 1])];
 % Oracle baseline predictor: re-cast the true obstacles at each queried pose.
 oraclePredictor = @(belief, pose) fov.visibleBoundaryAt( ...
     pose, scenario.Observer.Fov, scenario.Obstacles, scenario.Sensor.NumRays);

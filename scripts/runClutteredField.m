@@ -8,14 +8,16 @@
 run('startup.m');
 
 % --- Settings: source and sensor ---
-source = "filter";               % "oracle" | "latest" | "filter" | "filter-conservative"
-rangeNoiseStd = 0.05;            % range noise (m); the filter assumes the same
+source = "latest";               % "oracle" | "latest" | "filter" | "filter-conservative"
+rangeNoiseStd = 0.10;            % range noise (m); the filter assumes the same
 seed = 1;                        % noise seed
-stopTime = 32;                   % run length (s), a multiple of 0.025; 8 for quick checks
+stopTime = 30;                   % run length (s), multiple of 0.025 (e.g. 8 to test)
 
 % --- Settings: controller (CBF-QP) ---
 inputWeights = diag([1, 1, 0.25]);   % W: cost of deviating from the nominal input
 rateFactor = 6;                  % R = rateFactor * W: cost of changing the input per step
+inputLower = [-0.5; -0.5; -1];   % body input bounds [vx; vy; omega] (m/s, m/s, rad/s);
+inputUpper = [0.5; 0.5; 1];      % each must allow zero (standing still)
 cbfRate = 4;                     % gamma in hdot + gamma*h >= -slack
 distanceMargin = 0.1;            % m kept inside the visible set
 gradientDirections = "axes+diagonals";   % or "axes" (single-axis samples only)
@@ -31,11 +33,17 @@ replaySpeed = 1;                 % 2 = twice real time
 % Scenario: the leader weaves between small posts.
 scenario = scenarios.clutteredField();
 scenario.Time.Stop = stopTime;
+% A shorter run keeps only the leader's schedule breakpoints within it.
+keep = scenario.Leader.Reference.Times <= stopTime;
+scenario.Leader.Reference.Times = scenario.Leader.Reference.Times(keep);
+scenario.Leader.Reference.Values = scenario.Leader.Reference.Values(keep, :);
 scenario.Sensor.RangeNoiseStd = rangeNoiseStd;
 scenario.Sensor.Seed = seed;
 policyConfig = struct( ...
     'InputWeights', inputWeights, ...
     'InputRatePenalty', rateFactor * inputWeights, ...
+    'InputLower', inputLower, ...
+    'InputUpper', inputUpper, ...
     'CbfRate', cbfRate, ...
     'DistanceMargin', distanceMargin, ...
     'GradientDirections', gradientDirections, ...
@@ -46,7 +54,7 @@ result = simulation.runScenario(scenario);
 viz.plotSimulationSummary(result);
 viz.plotControlDiagnostics(result);
 viz.animateSimulation(result, ...
-    'ShowRays', true, ...
+    'ShowRays', false, ...
     'ShowHitPoints', true, ...
     'Speed', replaySpeed, ...
     'FrameRate', 30);

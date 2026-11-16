@@ -1,45 +1,64 @@
 function scenario = clutteredField()
-%CLUTTEREDFIELD A slow leader weaves through small scattered obstacles.
+%CLUTTEREDFIELD A leader explores forward through a field of small posts.
 %
-%   Loosely modeled on the cluttered environment of the VisCoNetwork paper,
-%   at the compact scale of scenarios.boxInFrontOfWall (2 m, 100 deg FoV, 81
-%   rays). The leader starts about 1.5 m out and visits four waypoints at
-%   about 0.1 m/s (a fifth of the 0.5 m/s input bound), keeping at least
-%   0.2 m from every post. The first leg reaches the 2 m range limit within
-%   a few seconds and a later leg nears the FoV edge, so the observer must
-%   translate and turn a little; otherwise it holds still. No 0.1 m post lies
-%   on the line of sight: crossing behind a post at range fraction s would
-%   force the observer to slide about s/(1-s) times the leader's lateral
-%   motion. The posts sit beside or behind the path instead. The observer
-%   holds a zero reference and runs the Zhou-style oracle-boundary CBF-QP.
+%   Short range: a 1 m, 100 deg FoV with 81 rays. The leader starts 0.5 m
+%   ahead of the observer and walks an open, weaving path forward, ending
+%   with a short leg back: about 5.8 m over 28 s (about 0.21 m/s, under half
+%   the 0.5 m/s input bound), then stops for the last 2 s. 0.1 m posts sit
+%   on a staggered grid with 0.6 m spacing, removed within 0.25 m of the
+%   leader's path and 0.5 m of the observer's start, so posts cross the line
+%   of sight as the pair moves. The observer holds a zero nominal reference:
+%   it moves only when the CBF-QP keeps the leader in view, so it must follow
+%   the leader out of range and around posts.
+%
+%   Measured with the oracle-boundary CBF at default settings (single run,
+%   noiseless, 2026-11-15): a static observer sees the leader on 9% of the
+%   samples; the CBF keeps it visible on 100%, with the constraint active on
+%   84% of the steps and never infeasible.
 
 % Start from the standard runner configuration, then shrink the geometry.
 scenario = scenarios.movingPair();
-scenario.Name = "Leader weaves through a cluttered field";
-scenario.Time = struct('Start', 0, 'Stop', 32, 'Step', 0.025);
+scenario.Name = "Leader explores through a cluttered field";
+scenario.Time = struct('Start', 0, 'Stop', 30, 'Step', 0.025);
 scenario.Observer.InitialPose = [0, 0, 0];
-scenario.Observer.Fov = fov.FovSpec(2, deg2rad(100));
+scenario.Observer.Fov = fov.FovSpec(1, deg2rad(100));
 % A zero reference isolates the CBF-QP correction as the only observer motion.
 scenario.Observer.Reference = struct('Times', 0, 'Values', [0, 0, 0]);
 
-% Constant-velocity legs between waypoints; zero yaw keeps body = world frame.
-waypoints = [1.45, 0.3; 2.05, 0.3; 1.3, -0.35; 0.75, -0.95; 1.2, 0.15];
-legStarts = [0; 5; 13; 21];
-legDurations = diff([legStarts; scenario.Time.Stop]);
+% Open exploring path: constant-speed legs between waypoints, then a stop.
+% Leg durations are rounded to the time grid; zero yaw keeps body = world.
+waypoints = [0.5, 0.0; 1.6, 0.55; 2.3, 0.15; 2.8, -0.55; 3.5, -0.2; 4.5, 0.5; 3.8, 1.0];
+legLengths = vecnorm(diff(waypoints), 2, 2);
+speed = sum(legLengths) / (scenario.Time.Stop - 2);
+legDurations = round(legLengths / speed / scenario.Time.Step) * scenario.Time.Step;
+legStarts = [0; cumsum(legDurations(1:end-1))];
 legVelocities = diff(waypoints) ./ legDurations;
 scenario.Leader.InitialPose = [waypoints(1, :), 0];
-scenario.Leader.Reference = struct('Times', legStarts, ...
-    'Values', [legVelocities, zeros(numel(legStarts), 1)]);
+scenario.Leader.Reference = struct( ...
+    'Times', [legStarts; sum(legDurations)], ...
+    'Values', [legVelocities, zeros(numel(legStarts), 1); 0, 0, 0]);
 
-% Side and background clutter, at least 0.2 m from the leader's path.
-centers = [0.6, 0.45; 1.85, -0.25; 0.3, -0.6; 1.2, 0.75; 1.25, -0.85; ...
-    1.75, 0.7; 0.25, 0.6];
-halfWidth = 0.05;
-square = halfWidth * [-1, -1; 1, -1; 1, 1; -1, 1];
+% Staggered grid of 0.1 m posts, thinned near the path and the start.
+spacing = 0.6;
+pathClearance = 0.25;
+startClearance = 0.5;
+centers = zeros(0, 2);
+rowYs = -1.2:spacing * sqrt(3) / 2:1.2;
+for row = 1:numel(rowYs)
+    rowOffset = mod(row, 2) * spacing / 2;
+    for x = 0.6 + rowOffset:spacing:4.6
+        center = [x, rowYs(row)];
+        if distanceToPath(center, waypoints) >= pathClearance ...
+                && norm(center) > startClearance
+            centers(end + 1, :) = center; %#ok<AGROW>
+        end
+    end
+end
+square = 0.05 * [-1, -1; 1, -1; 1, 1; -1, 1];
 obstacles = cell(1, size(centers, 1));
 for index = 1:size(centers, 1)
-    obstacles{index} = fov.polygonObstacle(sprintf('post%d', index), ...
-        centers(index, :) + square);
+    obstacles{index} = fov.polygonObstacle( ...
+        sprintf('post%d', index), centers(index, :) + square);
 end
 scenario.Obstacles = [obstacles{:}];
 
@@ -48,5 +67,17 @@ oraclePredictor = @(belief, pose) fov.visibleBoundaryAt( ...
     pose, scenario.Observer.Fov, scenario.Obstacles, scenario.Sensor.NumRays);
 scenario.Observer.Policy = control.makeSignedDistanceCbfPolicy( ...
     struct('BoundaryPredictor', oraclePredictor));
-scenario.Playback.Bounds = [-0.5, 2.5, -1.5, 1.5];
+scenario.Playback.Bounds = [-0.5, 4.8, -1.6, 1.6];
+end
+
+function distance = distanceToPath(point, waypoints)
+%DISTANCETOPATH Shortest distance from a point to the polyline of waypoints.
+
+distance = inf;
+for leg = 1:size(waypoints, 1) - 1
+    legStart = waypoints(leg, :);
+    legVector = waypoints(leg + 1, :) - legStart;
+    t = max(0, min(1, dot(point - legStart, legVector) / dot(legVector, legVector)));
+    distance = min(distance, norm(point - (legStart + t * legVector)));
+end
 end

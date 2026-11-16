@@ -35,8 +35,13 @@ No one document replaces the others. If a change affects a contract,
 architecture, roadmap/status, or verification state, update the relevant docs
 in the same change. Mark checklist items complete only after implementation
 and actual verification; record unavailable or unrun MATLAB and graphics
-verification honestly. The full suite (`runtests('tests')`) passed 121/121 on
-2026-11-14, after the CBF gradient's default became `"axes+diagonals"`
+verification honestly. The full suite (`runtests('tests')`) passed 123/123 on
+2026-11-15, after Q returned to the prototype values (closed-loop NEES), the
+box's wall moved to x = 1.6 and `scripts/generateResults.m` /
+`metrics.runSummary` were added; earlier 122/122 the same day, after the
+results-oriented visualization changes, the process-noise
+scale (q0, qv, qw ×0.01, `scripts/checkFilterConsistency.m`) and the reworked
+`scenarios.clutteredField`; earlier 121/121 on 2026-11-14, after the CBF gradient's default became `"axes+diagonals"`
 (combined-direction samples) and the per-scenario scripts gained settings
 blocks; earlier 119/119 the same day, after adding the boundary EKF (`estimation.makeBoundaryEkf`,
 methodology §1.3: correction, gating, Joseph update; `tests/TestFilter.m`),
